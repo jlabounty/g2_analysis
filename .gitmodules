@@ -1,0 +1,3 @@
+[submodule "submodules/g2fit"]
+	path = submodules/g2fit
+	url = git@github.com:jlabounty/g2fit.git
