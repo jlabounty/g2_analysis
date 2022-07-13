@@ -1,8 +1,23 @@
+# Script to format fcl files (Fermilab Hierarchical Computing Language)
+# J. LaBounty - July 2022
+# Install extension: https://github.com/jkillian/vscode-custom-local-formatters
+# Put this into your vscode settings.json:
+# "customLocalFormatters.formatters": [
+#         {
+#             "command":"python scripts/fcl_format.py",
+#             "languages": ["fcl"]
+#         }
+#     ]
+
+
 import os
 import sys
 
 indent = 0
 cutoff = 2
+indent_char = '\t'
+prevline = ''
+
 while True:
     lines = []
     try:
@@ -41,7 +56,7 @@ while True:
         if("]" in line):
             indent -= 1
 
-    line = ''.join('\t'*indent) + line 
+    line = ''.join(indent_char*indent) + line 
 
     if(len(line.strip()) > cutoff):
         if('{' in line):
@@ -56,6 +71,8 @@ while True:
         indent = 0
 
     lenghts = len(line),len(comment)
-    prevline = line
+    # prevline = line
     line = line+comment #+ f'### {lenghts} | {indent} | "{comment}" | "{prevline}"'
-    print(line)
+    # if(len(line) > 0 or len(prevline.strip()) > 0):  
+    print(line)#,f'# "{prevline=}"')
+    # prevline = line.strip().lstrip(indent_char)
