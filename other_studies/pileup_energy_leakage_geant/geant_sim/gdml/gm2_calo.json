@@ -1,0 +1,37 @@
+{
+    "debug":true,
+    "filename":"gm2_calo",
+    "mother":{
+        "material":"air",
+        "xWidth":200, 
+        "yWidth":200,
+        "zWidth":1100
+    },
+    "calorimeter":{
+        "debug":false,
+        "geometry":"gm2",
+        "xPos": 0.0,
+        "yPos": 0.0,
+        "zPos": 0.0,
+        "material": "LXe",
+        "rMin": 7.5,
+        "rMax": 87.916,
+        "thetaMin": 17.0,
+        "thetaMax": 163.0,
+        "phiMin":0.0,
+        "phiMax":360.0,
+        "outerSurface":true,
+        "outerMaterial":"CaloAbsorber",
+        "innerSurface":false,
+        "innerMaterial":"CaloGhostPlane",
+        "dividers":false,
+        "dividerMaterial":"Tedlar",
+        "nDivsTheta":25,
+        "nDivsPhi":25,
+        "divThickness":0.01,
+        "symmetricCone":true,
+        "outerShell":false,
+        "outerShellMaterial":"Aluminum",
+        "outerShellThickness":10.0
+    }
+}

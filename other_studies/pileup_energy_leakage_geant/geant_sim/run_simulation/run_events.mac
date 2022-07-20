@@ -1,0 +1,136 @@
+# print macro commands on screen
+/control/verbose 0
+
+###################################################################
+# geometry must be specified before /run/initialize               # 
+/geometry/source /gm2/gdml/gm2_calo.gdml
+# /geometry/source /gm2/gdml/calo_only_PEN.gdml
+
+# End of geometry configuration                                   # 
+###################################################################
+
+###################################################################
+# Configuration of the physics to be used                         # 
+
+/Physics/SelectList QGSP_BERT
+/process/had/verbose 0
+/process/em/verbose 0
+
+# Add optical physics.
+# /Physics/AddOptics
+#/process/optical/verbose 1
+#/process/optical/processActivation Cerenkov false
+#/process/optical/processActivation Scintillation false
+#/process/optical/processActivation OpAbsorption true
+#/process/optical/processActivation OpRayleigh true
+#/process/optical/processActivation OpMieHG true
+#/process/optical/processActivation OpBoundary true
+#/process/optical/processActivation OpWLS true
+#/process/optical/processActivation OpWLS2 true
+#
+#/process/optical/scintillation/verbose 1
+#/process/optical/scintillation/setByParticleType false
+#/process/optical/scintillation/setTrackInfo true
+#/process/optical/scintillation/setFiniteRiseTime false
+#/process/optical/scintillation/setStackPhotons true
+#/process/optical/scintillation/setTrackSecondariesFirst true
+
+# Decay mode selection
+#/decay/all
+#/decay/pimunu
+#/decay/rad_muon
+#/decay/pienu
+#/decay/pienug
+#/decay/rad_michel
+#/decay/rad_michel_rad_muon
+#/decay/pi_dif_e
+#/decay/pi_dif_michel
+#/decay/mu_dif
+#/decay/pibeta
+
+
+# End of physics configuration                                    # 
+###################################################################
+
+###################################################################
+# Configuration of the output to be written                       # 
+
+# path to output file. "#RUN#" will be replaced by the run ID
+/output/FileName /data/g2calosim/pienu#RUN#
+# /output/FileName ./test#RUN#
+
+# Switching on/off branches in the output TTree
+/output/SaveInit         true
+/output/SaveTrack        false
+/output/SaveCalo         true
+/output/SaveAtar         true
+/output/SaveSipm         false
+
+
+# End of output configuration                                     # 
+###################################################################
+
+
+#==================================================================
+# Initialise the run 
+/run/numberOfThreads 24
+/run/initialize
+
+# check physics processes and particles.
+# Beware, output is somewhat messy in multithreaded mode
+# /process/list
+# /particle/list
+# /geometry/list
+
+# configure the generic particle source
+# /gps/particle e+
+# /gps/energy 2.0 GeV
+# /gps/pos/type Volume
+# /gps/pos/shape Para
+# /gps/pos/centre 0 0 -200 mm
+# /gps/pos/halfx 0 mm
+# /gps/pos/halfy 0 mm
+# /gps/pos/halfz 0 mm
+# /gps/ang/type beam1d
+# #/gps/ang/rot1 1 0 0
+# #/gps/ang/rot2 0 -1 0
+# /gps/direction 0 0 1
+
+/gps/particle e+
+/gps/ene/type Lin
+/gps/ene/min 0.01 GeV
+/gps/ene/max 3.5 GeV
+/gps/ene/gradient 0.0001
+/gps/ene/intercept -10000
+/gps/pos/type Volume
+/gps/pos/shape Para
+/gps/pos/centre 0 12.25 -200 mm
+/gps/pos/halfx 0 mm
+/gps/pos/halfy 0 mm
+# /gps/pos/centre 0 0 -200 mm
+# /gps/pos/halfx 100 mm
+# /gps/pos/halfy 62.5 mm
+/gps/pos/halfz 0 mm
+/gps/ang/type beam1d
+#/gps/ang/rot1 1 0 0
+#/gps/ang/rot2 0 -1 0
+/gps/direction 0 0 1
+
+# =================================================================
+
+# visualize geometry and events for debugging
+# /vis/open HepRepFile
+# /vis/open VRML2FILE
+# /vis/open DAWNFILE
+# /vis/drawVolume
+#/vis/scene/add/trajectories
+
+# dump a few events on screen for debugging
+#/random/setSeeds 
+#/tracking/verbose 0
+
+
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Start the run
+
+/run/beamOn 1000000
