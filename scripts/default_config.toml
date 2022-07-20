@@ -1,0 +1,90 @@
+# Configuration file for an omega_a analysis
+
+dataset = ""
+blinding_file = "/home/jlab/github/g2_analysis/default.phrase"
+
+directory = ''
+
+[raw]
+file = ''
+hist_name       = ""
+uncor_hist_name = ""
+file_name       = ""
+loss_hist_name  = ""
+loss_file_name  = ""
+
+[pileup_corr]
+file = ''
+rebin = 1 # binning factor
+complete = false
+
+[fitting]
+complete = false 
+fit_start = 30.1384
+closest_zero_crossing = false
+fit_end = 400
+extended_fit_end = 650
+calo_range = [1, 24]
+
+[fitting.fits] # now lets do the fits in order, marking each one as complete as we go.
+do_t = true
+do_a = false
+
+[fitting.fits.5]
+complete = false 
+
+[fitting.fits.13]
+complete = false
+
+[fitting.fits.18]
+complete = false
+
+[fitting.fits.full]
+complete = false 
+
+[scans]
+do_scans = false
+complete = false 
+scan_dir = '/scans/'
+
+[scans.calo]
+active = false 
+per_calo = false
+fit_par_fixes = []
+fit_par_limits = []
+fit_par_guesses  = []
+
+[scans.Ebinned]
+active = false 
+per_calo = false
+
+min_E = 1000
+max_E = 2920
+n_bins = 32
+fit_par_fixes = []
+fit_par_limits = []
+fit_par_guesses = []
+
+[scans.start_time]
+active = false 
+per_calo = false
+fig_par_fixes = []
+step = 0.5
+n_pts = 350
+
+[scans.stop_time]
+active = false 
+per_calo = false
+fit_par_fixes = []
+step = 0.5
+n_pts = 250
+
+[scans.sliding_window]
+active = false
+per_calo = false
+fit_par_fixes = []
+step = 1
+width = 30
+n_pts = 150
+
+

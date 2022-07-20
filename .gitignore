@@ -130,3 +130,10 @@ dmypy.json
 
 #vscode
 .vscode
+**.pickle
+**.root
+**.tar.gz
+
+#blinding phrase files
+**.phrase 
+other_studies/pileup_energy_leakage_geant/geant_sim/analysis/data

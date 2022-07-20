@@ -1,0 +1,9 @@
+./gridSetupAndSubmitGM2Data.sh --daq --ana \
+    --fhicl FCL \
+    --sam-dataset DATASET \
+    --njobs 350 \
+    --output-dir /pnfs/GM2/scratch/users/labounty/gridoutput \
+    --localArea \
+    --memory 5 \
+    --lifetime 24h \
+    --sam-max-files 1 --noGrid

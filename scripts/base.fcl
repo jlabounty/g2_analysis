@@ -1,0 +1,276 @@
+#include "empirical_pileup_config.fcl"
+#include "empirical_pileup_config_sigma.fcl"
+
+
+process_name : gm2clusterAndCoinHists 
+
+source : { 
+	module_type : RootInput 
+	inputCommands : [ "keep *", 
+		"drop gm2strawtracker*_*_*_*", 
+		"keep gm2strawtracker::StrawDigitArtRecords_digitizer_straws_caloReco" 
+	] 
+} 
+
+services : { 
+	message : { 
+		
+		debugModules : [] 
+		suppressInfo : [] 
+		
+		destinations : { 
+			LogToConsole: { 
+				type     : "cout" 
+				threshold: "debug" 
+			} 
+			LogToFile : { 
+				type      : "file" 
+				threshold : "DEBUG" 
+				filename: "gm2clusterAndCoinHists_ana.log" 
+				append: false 
+			} 
+			
+		} 
+		
+	} # message
+	
+	
+	TFileService : { 
+		fileName : "gm2clusterAndCoinHists_ana.root" 
+	} 
+	
+} 
+
+
+physics : { 
+	
+	filters: { 
+		InternalTriggerFilter : { 
+			module_type      : KickerTriggerFilter 
+			fc7ModuleLabel   : cccUnpacker 
+			fc7InstanceLabel : unpacker 
+		} 
+		muonFilter: { 
+			module_type: CCCTriggerTypeFilter 
+			triggerType: 1 
+			fc7ModuleLabel: cccUnpacker 
+			fc7InstanceLabel: unpacker 
+		} 
+		inFillLaserFilter : { 
+			module_type: CCCInFillLaserFilter 
+			fc7ModuleLabel: cccUnpacker 
+			fc7InstanceLabel: unpacker 
+		} 
+		
+	} 
+	producers: { 
+		RWEmpiricalPileupHitClusterDAQ2Sigma : { 
+			module_type            : HitCluster 
+			clusterInstanceLabel   : cluster 
+			correctorModuleLabel   : RWEmpiricalPileupInFillGainCorrector2 
+			correctorInstanceLabel : corrector 
+			minEnergy              : 1000000 
+			timeCutoffLow          : 6 
+			timeCutoffHigh         : 8 
+			useTimeSigma           : true 
+		} 
+		RWEmpiricalPileupHitClusterDAQ3Sigma : { 
+			module_type            : HitCluster 
+			clusterInstanceLabel   : cluster 
+			correctorModuleLabel   : RWEmpiricalPileupInFillGainCorrector3 
+			correctorInstanceLabel : corrector 
+			minEnergy              : 1000000 
+			timeCutoffLow          : 6 
+			timeCutoffHigh         : 8 
+			useTimeSigma           : true 
+		} 
+		
+		clusterCoincidenceFinder: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQ 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 100 
+			eHigh: 250 
+			deltaTLow: 4.4 
+			deltaTHigh: 5.6 
+			maxCoincidenceLevel: 4 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		clusterCoincidenceFinderSigma: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQSigma 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 100 
+			eHigh: 250 
+			deltaTLow: 4.4 
+			deltaTHigh: 5.6 
+			maxCoincidenceLevel: 4 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		clusterCoincidenceFinderSigmaWide: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQSigma 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 100 
+			eHigh: 850 
+			deltaTLow: 2 
+			deltaTHigh: 10 
+			maxCoincidenceLevel: 4 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		backwardsClusterCoincidenceFinder: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQ 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 100 
+			eHigh: 250 
+			deltaTLow: 4.4 
+			deltaTHigh: 5.6 
+			maxCoincidenceLevel: 3 
+			caloOffsets: [23] 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		backwardsClusterCoincidenceFinderSigma: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQSigma 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 100 
+			eHigh: 250 
+			deltaTLow: 4.4 
+			deltaTHigh: 5.6 
+			maxCoincidenceLevel: 3 
+			caloOffsets: [23] 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		
+		deuteronsClusterCoincidenceFinder: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQ 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 250 
+			eHigh: 500 
+			deltaTLow: 5.6 
+			deltaTHigh: 6.8 
+			maxCoincidenceLevel: 4 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		deuteronsClusterCoincidenceFinderSigma: { 
+			module_type: ClusterCoincidenceFinder 
+			clusterModuleLabel: hitClusterDAQSigma 
+			clusterInstanceLabel: cluster 
+			tMin: 4000 
+			eLow: 250 
+			eHigh: 500 
+			deltaTLow: 5.6 
+			deltaTHigh: 6.8 
+			maxCoincidenceLevel: 4 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		
+	} 
+	
+	analyzers:{ 
+		
+		clustersAndCoincidencesRand: { 
+			module_type         : ClusterAndCoincidenceHistograms 
+			clusterModuleLabel: hitClusterDAQ 
+			clusterInstanceLabel: cluster 
+			coincidenceModuleLabel: clusterCoincidenceFinder 
+			coincidenceInstanceLabel: "" 
+			backwardsCoincidenceModuleLabel: backwardsClusterCoincidenceFinder 
+			backwardsCoincidenceInstanceLabel: "" 
+			deuteronsCoincidenceModuleLabel: deuteronsClusterCoincidenceFinder 
+			deuteronsCoincidenceInstanceLabel: "" 
+			startTime: 0.0 
+			nTimeBins: 4464 #  4691
+			pileupBinningFactor: 1 
+			nEnergyBins: 300 
+			startEnergy: 0 
+			eBinWidth           : 20.0 
+			tBinWidth           : 0.14919 
+			randomizeFillTimes: true 
+			randRange: 0.14919 
+			seed: 0 
+			perHitRandomization: true 
+			useKernel : false 
+			useAsymLoss : false 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		clustersAndCoincidencesSigmaRand: { 
+			module_type         : ClusterAndCoincidenceHistograms 
+			clusterModuleLabel: hitClusterDAQSigma 
+			clusterInstanceLabel: cluster 
+			coincidenceModuleLabel: clusterCoincidenceFinderSigma 
+			coincidenceInstanceLabel: "" 
+			backwardsCoincidenceModuleLabel: backwardsClusterCoincidenceFinderSigma 
+			backwardsCoincidenceInstanceLabel: "" 
+			deuteronsCoincidenceModuleLabel: deuteronsClusterCoincidenceFinderSigma 
+			deuteronsCoincidenceInstanceLabel: "" 
+			startTime: 0.0 
+			nTimeBins: 4464 #  4691
+			#nTimeBins: 3000 #  4691
+			pileupBinningFactor: 1 
+			nEnergyBins: 300 
+			startEnergy: 0 
+			eBinWidth           : 20.0 
+			tBinWidth           : 0.14919 
+			randomizeFillTimes: true 
+			randRange: 0.14919 
+			seed: 0 
+			perHitRandomization: true 
+			useKernel : false 
+			useAsymLoss : false 
+			startRun: 0 
+			endRun: 1 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		makeBUEmpiricalPileup : @local::empirical_pileup_config 
+		makeBUEmpiricalPileupSigma : @local::empirical_pileup_config_sigma 
+		
+		lostMuonTree: { 
+			module_type             : LostMuonTree 
+			coincidenceModuleLabel  : clusterCoincidenceFinderSigmaWide 
+			coincidenceInstanceLabel: "" 
+			SelectEvents: ["caloReco:muonPathWithDQC"] 
+		} 
+		
+		
+		
+	} #  analyzers
+	
+	
+	
+	#  Define paths/streams
+	
+	coincidencePath: [InternalTriggerFilter, muonFilter, clusterCoincidenceFinder, 
+		backwardsClusterCoincidenceFinder, deuteronsClusterCoincidenceFinder] 
+	
+	coincidencePathSigma: [InternalTriggerFilter, muonFilter, "!inFillLaserFilter", RWEmpiricalPileupHitClusterDAQ2Sigma, RWEmpiricalPileupHitClusterDAQ3Sigma, 
+		clusterCoincidenceFinderSigma, 
+		clusterCoincidenceFinderSigmaWide, 
+		backwardsClusterCoincidenceFinderSigma, deuteronsClusterCoincidenceFinderSigma] 
+	anaPath: [clustersAndCoincidencesSigmaRand, 
+		# clustersAndCoincidencesRand,
+		# makeBUEmpiricalPileup,
+		lostMuonTree, 
+		makeBUEmpiricalPileupSigma] 
+	
+	# List trigger (producer/filter) and end (analyzer/output) paths
+	trigger_paths: [coincidencePathSigma, coincidencePath] 
+	end_paths     : [ anaPath  ] 
+	
+} 
+
