@@ -10,7 +10,8 @@ subfolders = [
     'data_pileupCorr_noResidGain',
     'data_pileupCorr',
     'plots',
-    'scans'
+    'scans',
+    'fits'
 ]
 
 thispath = os.path.join(basepath, dataset)
