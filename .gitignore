@@ -136,4 +136,12 @@ dmypy.json
 
 #blinding phrase files
 **.phrase 
+
+# data files
 other_studies/pileup_energy_leakage_geant/geant_sim/analysis/data
+
+# geant4 vis files
+**.wrl
+**.prim
+**/.DAWN*
+**.heprep

@@ -22,7 +22,7 @@ class AnalysisConfig:
             raise NotImplementedError
 
     def __getitem__(self, arg):
-        if('blinding_string' in arg):
+        if(arg in ['blinding_string', 'blinding_phrase']):
             return self._get_blinding_string()  
         else:
             return self.d[arg]
@@ -36,12 +36,15 @@ class AnalysisConfig:
         self.dump(self.infile)
 
     def _get_blinding_string(self):
-        if(self.blinding_phrase is not None):
+        # print("getting blinding")
+        if(self.blinding_phrase is None):
+            # print("ok.1")
             assert 'blinding_file' in self.d
             blinding_file = self['blinding_file']
             assert os.path.exists(blinding_file)
             with open(blinding_file, 'r') as f:
                 self.blinding_phrase = f.readlines()[0].strip()
+            # print(f'{self.blinding_phrase=}')
         return self.blinding_phrase
         
     def dumps(self, **kwargs):
