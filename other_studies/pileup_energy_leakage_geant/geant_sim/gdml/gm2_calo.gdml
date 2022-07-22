@@ -13354,7 +13354,7 @@
       </physvol>
       <auxiliary auxtype="Solid" auxvalue="gm2_container0x1"/> 
       <auxiliary auxtype="Material" auxvalue="air"/> 
-      <auxiliary auxtype="SensDet" auxvalue="CALORIMETER"/> 
+      <!-- <auxiliary auxtype="SensDet" auxvalue="CALORIMETER"/>  -->
     </volume>
     <volume name="gm2_container0x2">
       <materialref ref="SuperDense"/>

@@ -17,3 +17,7 @@ Created a branch to work with: `https://github.com/PIONEER-Experiment/MonteCarlo
 Ok, so now we have the data from the simulation.... but now what? Well, in the background, we need to refine the simulation to make sure the inputs are correct! If we aren't simulating the physics properly, we will get the wrong answer. However, in parallel we need to assess the impact of this effect on the energy reconstructed and determine how to correct it.
 
 Also need to think about the effect of crystal truncation!
+
+---
+
+Can we create a ML model / interpolator to repair the energy loss... I think its likely, similar to the one used in PIONEER.
