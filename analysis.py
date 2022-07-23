@@ -27,8 +27,9 @@ def get_date():
     return d_aware
 
 class PrecessionAnalysis():
-    def __init__(self, config_file) -> None:
+    def __init__(self, config_file, verbose=False) -> None:
         self.h = None
+        self.verbose=verbose
         if(type(config_file) is configuration.AnalysisConfig):
             self.config = config_file
             self.config_file = self.config.infile
@@ -48,7 +49,8 @@ class PrecessionAnalysis():
             h = analysis.gm2histogram.load(self.config['pileup_corr']['file'])
         
         else:
-            print('Calculating pileup correction from scratch')
+            if(self.verbose):
+                print('Calculating pileup correction from scratch')
             directory = self.config['directory']
             raw_file = self.config['raw']['file']
             assert os.path.exists(raw_file)
@@ -79,10 +81,12 @@ class PrecessionAnalysis():
         # default to global params
         par_names, par_guesses, par_lim_low, par_lim_high, par_fixed = zip(*these_params['params'])
         
+        method_found = False
         if(type(method) is int):
             method = methods[method]
         if(method in these_params):
             if(these_params[method]['complete']): # unless the fit was already completed
+                method_found = True
                 par_names, par_guesses, par_lim_low, par_lim_high, par_fixed = zip(*these_params[method]['fitted_params'])
             elif('params' in these_params[method]): # or we have t/a method specific guesses defined
                 par_names, par_guesses, par_lim_low, par_lim_high, par_fixed = zip(*these_params[method]['params'])
@@ -100,19 +104,24 @@ class PrecessionAnalysis():
         }
 
         if('inherit_params' in these_params and these_params['inherit_params'] and not these_params['complete']):
-            additional_params = self.get_fit_params(str(these_params['inherit_from']), method)
-            for x in di:
-                di[x] = additional_params[x] + di[x]
+            '''dont do this if we have the complete params'''
+            if(not method_found):
+                additional_params = self.get_fit_params(str(these_params['inherit_from']), method)
+                for x in di:
+                    di[x] = additional_params[x] + di[x]
 
         return di
 
     def prepare_fit_function(self, fit='5', method=0):
         this_config = self.config['fitting']['fits'][fit]
-        # print(this_config)
+        if(self.verbose):
+            print(this_config)
         fit_params = self.get_fit_params(fit, method)
-        # print(fit_params)
+        if(self.verbose):
+            print(fit_params)
         if(this_config['complete'] or ('function_file' in this_config)):
-            print('Loading from fit file!') #TODO: implement file save/load
+            if(self.verbose):
+                print('Loading from fit file!') #TODO: implement file save/load
             outfile = this_config['function_file']
             this_fit = analysis.fitting.FullOmegaAFit.load(outfile)
             # this_fit.re_init()
@@ -148,15 +157,24 @@ class PrecessionAnalysis():
 
     def prepare_fit(self,fit='5',method=0, calo=0, hi=None, **kwargs):
         fit_function, fit_pars = self.prepare_fit_function(fit)
+        if(self.verbose):
+            print(f"{fit_pars=}")
+        if(self.verbose):
+            print(f"{fit_function=}")
+        if(self.verbose):
+            print(f'{fit_function.params=}')
         other_pars = self.config['fitting']
         if(hi is None):
             hi = self.prepare_histogram(other_pars, method, calo)
         
         lims = {fit_pars['names'][i]:(fit_pars['limlow'][i],fit_pars['limhigh'][i]) 
                     for i in range(len(fit_pars['names']))}
-        print(f'{lims=}')
-        # print(f"{fit_pars['fixed']=}")
-        # print(f'{fit_pars=}')
+        if(self.verbose):
+            print(f'{lims=}')
+        if(self.verbose):
+            print(f"{fit_pars['fixed']=}")
+        if(self.verbose):
+            print(f'{fit_pars=}')
         fixed_pars = [i for i,x in enumerate(fit_pars['fixed']) if x]
         this_fit = fitting.PyFit.from_hist(
             hi,
@@ -216,6 +234,34 @@ class PrecessionAnalysis():
 
         self.config.update()
 
+    def a_method_from_t_method(self, fit='5', ebinned_name='Ebinned', par_name='$A_{0}$', calo=0, 
+                           hi=None, use_hist_errors=True, **kwargs):
+        '''prepare an a-method fit given the corresponding t-method fit and an asym weighted histogram'''
+        ebinned_config = self.config['scans'][ebinned_name][f'{calo}']
+        global_fit_config = self.config['fitting']
+        this_fit_config = global_fit_config['fits'][fit]['t']
+        assert 'interp_file' in ebinned_config
+        this_interp = self.load_object(ebinned_config['interp_file'])[par_name]
+
+        if(hi is None):
+            hi = self.h.a_method(this_interp, 
+                    global_fit_config['a_threshold_low'], 
+                    global_fit_config['a_threshold_high'], 
+                    calo=calo)
+
+        this_fit = self.prepare_fit(
+            fit,calo=calo, hi=hi, use_hist_errors=use_hist_errors, **kwargs
+        )
+
+        return this_fit
+
+
+    '''
+        ***************************************************************************
+        Static helper methods
+        ***************************************************************************
+    '''
+
     @staticmethod
     def save_object(obj, outfile='./out.pickle'):
         with gzip.open(outfile, 'wb') as fout:
@@ -224,33 +270,57 @@ class PrecessionAnalysis():
     @staticmethod
     def load_object(outfile='./out.pickle'):
         with gzip.open(outfile, 'rb') as fin:
-            return pickle.load(fin)
+            obj = pickle.load(fin)
+        try:
+            obj.re_init()
+        except:
+            pass # some classes won't have this function, that's ok.
+
+        return obj
 
     '''
+        ***************************************************************************
+        ***************************************************************************
+        ***************************************************************************
         Systematic scan code
+        ***************************************************************************
+        ***************************************************************************
+        ***************************************************************************
     '''
 
     '''
+        ***************************************************************************
         Energy binned analysis
+        ***************************************************************************
     '''
     def energy_binned_scan(self, scan_name='Ebinned'):
         '''function to perform an energy binned analysis, governed by the config file'''
         ebin_params = self.config['scans'][scan_name]
         fit_params = self.config['fitting']
         scan_dir = os.path.join(self.config['directory'], 'scans', scan_name)
-        os.system(f'mkdir -p {scan_dir}')
+        scan_outfile = os.path.join(scan_dir, f'{scan_name}.toml')
+        os.system(f'mkdir -p {scan_dir}; touch {scan_outfile}')
+        scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
+        scan_output_config['scans'] = tomlkit.table()
+        scan_output_config['scans'][scan_name] = tomlkit.table()
+        self.config['scans'][scan_name]['scan_file'] = scan_outfile
+        self.config.update()
 
         ebins = self.h.clusters.axes[1].edges
         # ebins = ebins[ebins >= ebin_params['min_E']]
         # ebins = ebins[ebins <  ebin_params['max_E']]
 
+
         ebin_bools = np.where((ebins >= ebin_params['min_E'])&(ebins < ebin_params['max_E']), True, False )
         ebin_ints = [i for i,x in enumerate(ebin_bools) if x]
-        # print(ebins, len(ebins))
-        # print(ebin_bools, ebin_ints)
+        if(self.verbose):
+            print(ebins, len(ebins))
+        if(self.verbose):
+            print(ebin_bools, ebin_ints)
         # return
         bin_groups = np.array_split(ebin_ints, ebin_params['n_bins'])
-        # print(bin_groups)
+        if(self.verbose):
+            print(bin_groups)
 
         if(ebin_params['per_calo']):
             calos = list(range(25))
@@ -258,12 +328,13 @@ class PrecessionAnalysis():
             calos = [0]
 
         for calo in calos:
-            self.config['scans'][scan_name][str(calo)] = tomlkit.table()
+            scan_output_config['scans'][scan_name][str(calo)] = tomlkit.table()
             for i, bins in enumerate(bin_groups):
-                # print(bins)
-                self.config['scans'][scan_name][str(calo)][str(i)] = tomlkit.table()
-                self.config['scans'][scan_name][str(calo)][str(i)]['ebins'] = list([int(x) for x in bins])
-                self.config['scans'][scan_name][str(calo)][str(i)]['ebin_vals'] = list(ebins[bins[0]:bins[-1]+1])
+                # if(self.verbose):
+                #     print(bins)
+                scan_output_config['scans'][scan_name][str(calo)][str(i)] = tomlkit.table()
+                scan_output_config['scans'][scan_name][str(calo)][str(i)]['ebins'] = list([int(x) for x in bins])
+                scan_output_config['scans'][scan_name][str(calo)][str(i)]['ebin_vals'] = list(ebins[bins[0]:bins[-1]+1])
 
                 if(calo == 0):
                     this_histogram = self.h.clusters[:,bins[0]:bins[-1]+1:sum,::sum]
@@ -272,7 +343,6 @@ class PrecessionAnalysis():
 
                 this_fit = self.prepare_fit(ebin_params['use_fit'], hi=this_histogram)
                 # TODO: Implement setting/fixing extra parameters based on ebin specific settings
-                # print(this_fit)
                 if('fit_end' in ebin_params):
                     this_fit.set_limits((this_fit.limits[0],ebin_params['fit_end']))
                 if('fit_start' in ebin_params):
@@ -281,13 +351,14 @@ class PrecessionAnalysis():
                 this_fit.fit()
                 outfile = os.path.join(scan_dir, f'fit_calo{calo:02}_bins{i:03}.pickle')
                 this_fit.write(outfile)
-                self.config['scans'][scan_name][str(calo)][str(i)]['file'] = outfile
-                self.config['scans'][scan_name][str(calo)][str(i)] = self.update_fit(
-                    'scan', this_fit, write=False, thisdict=self.config['scans'][scan_name][str(calo)][str(i)]
+                scan_output_config['scans'][scan_name][str(calo)][str(i)]['file'] = outfile
+                scan_output_config['scans'][scan_name][str(calo)][str(i)] = self.update_fit(
+                    'scan', this_fit, write=False, thisdict=scan_output_config['scans'][scan_name][str(calo)][str(i)]
                 )
                 # return this_fit
                 # break
-        self.config['scans'][scan_name][str(calo)]['complete'] = True
+        scan_output_config['scans'][scan_name][str(calo)]['complete'] = True
+        scan_output_config.update()
         self.config.update()
 
     def plot_e_binned_scan(self, scan_name='Ebinned', calo=0, write=True):
@@ -299,8 +370,10 @@ class PrecessionAnalysis():
 
         scan_params = self.config['scans'][scan_name]
         these_params = self.config['scans'][scan_name][str(calo)]
-        # print(these_params.keys())
-        # print(these_params)
+        if(self.verbose):
+            print(these_params.keys())
+        if(self.verbose):
+            print(these_params)
         npar = len(these_params['0']['fitted_params'])
         nscans = scan_params['n_bins']
         nearest_square = int(np.ceil(np.sqrt(npar)))
@@ -313,8 +386,10 @@ class PrecessionAnalysis():
             bini = these_params[f'{i}']['ebins'][0]
             energy_widths.append( np.abs(x- eaxis.edges[bini] ) )
 
-        print(energies)
-        print(energy_widths)
+        if(self.verbose):
+            print(energies)
+        if(self.verbose):
+            print(energy_widths)
         xs = np.linspace(np.amin(energies), np.amax(energies), 1000)
         for i in range(npar):
             axi = ax.ravel()[i]
@@ -325,13 +400,14 @@ class PrecessionAnalysis():
             par_errs = [these_params[f'{j}']['fitted_errors'][i]    for j in range(nscans)]
 
             axi.errorbar(x=energies,xerr=energy_widths,y=pars, yerr=par_errs, fmt='o:')
-            interps[pari] = interp1d(energies, pars, bounds_error=False)
+            # use the min/max values for those outside the interpolation range
+            interps[pari] = interp1d(energies, pars, bounds_error=False, fill_value=0)
             axi.plot(xs, interps[pari](xs), label='Interpolated')
         plt.tight_layout()
 
         if(write):
-            plt.savefig(os.path.join(directory, 'energy_binned_results.png'))
-            plt.savefig(os.path.join(directory, 'energy_binned_results.pdf'))
+            plt.savefig(os.path.join(directory,   'energy_binned_results.png'))
+            plt.savefig(os.path.join(directory,   'energy_binned_results.pdf'))
             interp_file = os.path.join(directory, 'energy_binned_interps.pickle')
             self.save_object(interps, interp_file)
             self.config['scans'][scan_name][str(calo)]['interp_file'] = interp_file
@@ -340,8 +416,150 @@ class PrecessionAnalysis():
 
         return fig,ax,interps
 
+    '''
+        ***************************************************************************
+        Energy cut scan
+        ***************************************************************************
+    '''
+    def make_df_energy_start_stop_scan(self, scan_name='t_method_e_scan', calo=0):
+        '''turns the output of the energy_start_stop_scan function into a pandas df for plotting'''
+        import pandas 
+        this_scan = self.config['scans'][scan_name]
+        scan_file = this_scan['scan_file']
+
+        scan_config = configuration.AnalysisConfig(str(scan_file))#['scans'][scan_name][str(calo)]
+        if(self.verbose):
+            print(scan_config)
+        ding = scan_config['scans'][scan_name][str(calo)]
+        scan_point_keys = [x for x in ding.keys() if 'scan_' in x]
+        if(self.verbose):
+            print(scan_point_keys)
+
+        dfi = []
+        for key in scan_point_keys:
+            this_scan_point = ding[key]
+            dicti = {
+                'calo':calo,
+                'elow':this_scan_point['elow'],
+                'ehigh':this_scan_point['ehigh'],
+            }
+            for i, x in enumerate(this_scan_point['fitted_params']):
+                dicti[x[0]] = x[1]
+                dicti[f'{x[0]}_err'] = this_scan_point['fitted_errors'][i]
+            dfi.append(dicti)
+
+        df = pandas.DataFrame(dfi)
+        return df
+
+    def energy_start_stop_scan(self, scan_name='t_method_e_scan', write=True, rebin_e=1):
+        '''does a scan over the t/a method to find the optimal energy points'''
+        scan_config = self.config['scans'][scan_name]
+        global_fit_config = self.config['fitting']
+        method = scan_config['method']
+        if(type(method) is int):
+            method = methods[method]
+
+        if(scan_config['per_calo']):
+            calos = list(range(25))
+        else:
+            calos = [0]
+
+        # loop over each of the calos to be evaluated
+        scan_outdir = os.path.join(self.config['directory'], 'scans', scan_name)
+        scan_outfile = os.path.join(scan_outdir, f'{scan_name}.toml')
+        os.system(f'mkdir -p {scan_outdir}; touch {scan_outfile}')
+        scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
+        scan_output_config['scans'] = tomlkit.table()
+        scan_output_config['scans'][scan_name] = tomlkit.table()
+        self.config['scans'][scan_name]['scan_file'] = scan_outfile
+        self.config.update()
+
+        for calo in calos:
+            # get the main histogram, without collapsing the energy axis
+            if(method == 't'):
+                if(calo > 0):
+                    h_e = self.h.clusters[:,:,hist.loc(calo)]
+                else:
+                    h_e = self.h.clusters[:,:,::sum]
+            elif(method == 'a'):
+                ebinned_config = self.config['scans']['Ebinned'][str(calo)]
+                if(not ebinned_config['complete']):
+                    raise ValueError("The energy binned scan for this calo is not complete")
+                interp_file = ebinned_config['interp_file']
+                asym_callable = self.load_object(interp_file)['$A_{0}$']
+                # asym_callable = None
+                h_e = self.h.a_method(asym_callable, threshold=1000, threshold_high=3200,calo=calo, collapse_energy=False)
+            else:
+                raise NotImplementedError
+
+            if(rebin_e > 1):
+                h_e = h_e[:,::hist.rebin(rebin_e)]
+
+            # create the output table for the scan and directory
+            scan_output_config['scans'][scan_name][str(calo)] = tomlkit.table()
+            outdir = os.path.join(self.config['directory'], 'scans', scan_name, f'{calo}')
+            os.system(f'mkdir -p {outdir}')
+
+            if(scan_config['min_start_E'] == scan_config['max_start_E']):
+                ebins_low = [h_e.axes[1].edges[h_e.axes[1].index(scan_config['max_start_E'])]]
+            else:
+                ebins_low = h_e.axes[1].edges
+                ebins_low = ebins_low[ebins_low >= scan_config['min_start_E']]
+                ebins_low = ebins_low[ebins_low  < scan_config['max_start_E']]
+                if(len(ebins_low) < 1):
+                    raise ValueError("No bins in selected range for ebins_low")
+
+            if(scan_config['min_end_E'] == scan_config['max_end_E']):
+                ebins_high = [h_e.axes[1].edges[h_e.axes[1].index(scan_config['max_end_E'])]]
+            else:
+                ebins_high = h_e.axes[1].edges
+                ebins_high = ebins_high[ebins_high >= scan_config['min_end_E']]
+                ebins_high = ebins_high[ebins_high < scan_config['max_end_E']]
+                if(len(ebins_high) < 1):
+                    raise ValueError("No bins in selected range for ebins_high")
+
+            if(self.verbose):
+                print(scan_config['min_start_E'], scan_config['max_start_E'], scan_config['min_end_E'], scan_config['max_end_E'])
+            if(self.verbose):
+                print(f"{ebins_low=}")
+            if(self.verbose):
+                print(f"{ebins_high=}")
+            binwidth = np.abs(h_e.axes[1].edges[0] - h_e.axes[1].edges[1])
+            if(self.verbose):
+                print(f"{binwidth=}")
+            # return
+
+            for binlow in ebins_low:
+                for binhigh in ebins_high:
+                    if(self.verbose):
+                        print(f'Scanning over energy range {binlow} - {binhigh} MeV')
+                    thisdict = {}
+                    thisdict['elow'] = binlow
+                    thisdict['ehigh'] = binhigh + binwidth
+                    hi = h_e[:,hist.loc(binlow):hist.loc(binhigh):sum]
+                    this_fit = self.prepare_fit(scan_config['use_fit'], hi=hi)
+                    if(self.verbose):
+                        print(this_fit)
+                    this_fit.fit()
+
+                    self.update_fit('', this_fit, thisdict=thisdict, write=False)
+                    if(write):
+                        outfile = os.path.join(outdir, f'scan_point_{binlow}_{binhigh}.pickle')
+                        this_fit.write(outfile)
+                        thisdict['file'] = outfile
+
+                    scan_output_config['scans'][scan_name][str(calo)][f'scan_{binlow}_{binhigh}'] = thisdict
+
+                #     break
+                # break
+            scan_output_config.update()
+            self.config.update()
+
+            # df = make_df_energy_start_stop_scan(self, scan_name, calo)
+            # df.to_csv(scan_outfile.replace('pickle','csv'))
 
 
-                    
+
+                        
 
 
