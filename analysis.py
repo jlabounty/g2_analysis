@@ -289,6 +289,19 @@ class PrecessionAnalysis():
         ***************************************************************************
     '''
 
+    def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
+        scan_params = self.config['scans'][scan_name]
+        outdir = os.path.join(self.config.get_directory(),'scans', scan_name)
+        scan_file = os.path.join(outdir, f'{scan_name}.toml')
+        os.system(f'mkdir -p {outdir}; touch {scan_file}')
+        config = configuration.AnalysisConfig(str(scan_file))
+        config['scans'] = tomlkit.table()
+        config['scans'][scan_name] = tomlkit.table()
+        config['scans'][scan_name]['outdir'] = str(outdir)
+        config['scans'][scan_name]['process_time'] = get_date()
+
+        return config
+
     '''
         ***************************************************************************
         Energy binned analysis
@@ -299,11 +312,15 @@ class PrecessionAnalysis():
         ebin_params = self.config['scans'][scan_name]
         fit_params = self.config['fitting']
         scan_dir = os.path.join(self.config['directory'], 'scans', scan_name)
-        scan_outfile = os.path.join(scan_dir, f'{scan_name}.toml')
-        os.system(f'mkdir -p {scan_dir}; touch {scan_outfile}')
-        scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
-        scan_output_config['scans'] = tomlkit.table()
-        scan_output_config['scans'][scan_name] = tomlkit.table()
+
+        scan_output_config = self.make_scan_toml(scan_name)
+        scan_outfile = scan_output_config.infile
+
+        # scan_outfile = os.path.join(scan_dir, f'{scan_name}.toml')
+        # os.system(f'mkdir -p {scan_dir}; touch {scan_outfile}')
+        # scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
+        # scan_output_config['scans'] = tomlkit.table()
+        # scan_output_config['scans'][scan_name] = tomlkit.table()
         self.config['scans'][scan_name]['scan_file'] = scan_outfile
         self.config.update()
 
@@ -511,11 +528,13 @@ class PrecessionAnalysis():
 
         # loop over each of the calos to be evaluated
         scan_outdir = os.path.join(self.config['directory'], 'scans', scan_name)
-        scan_outfile = os.path.join(scan_outdir, f'{scan_name}.toml')
-        os.system(f'mkdir -p {scan_outdir}; touch {scan_outfile}')
-        scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
-        scan_output_config['scans'] = tomlkit.table()
-        scan_output_config['scans'][scan_name] = tomlkit.table()
+        # scan_outfile = os.path.join(scan_outdir, f'{scan_name}.toml')
+        # os.system(f'mkdir -p {scan_outdir}; touch {scan_outfile}')
+        # scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
+        # scan_output_config['scans'] = tomlkit.table()
+        # scan_output_config['scans'][scan_name] = tomlkit.table()
+        scan_output_config = self.make_scan_toml(scan_name)
+        scan_outfile = scan_output_config.infile
         self.config['scans'][scan_name]['scan_file'] = scan_outfile
         self.config.update()
 
@@ -608,19 +627,6 @@ class PrecessionAnalysis():
         Start/Stop time scan
         ***************************************************************************
     '''
-
-    def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
-        scan_params = self.config['scans'][scan_name]
-        outdir = os.path.join(self.config.get_directory(),'scans', scan_name)
-        scan_file = os.path.join(outdir, f'{scan_name}.toml')
-        os.system(f'mkdir -p {outdir}; touch {scan_file}')
-        config = configuration.AnalysisConfig(str(scan_file))
-        config['scans'] = tomlkit.table()
-        config['scans'][scan_name] = tomlkit.table()
-        config['scans'][scan_name]['outdir'] = str(outdir)
-        config['scans'][scan_name]['process_time'] = get_date()
-
-        return config
         
 
     def do_start_time_scan(self, scan_name='start_time', write=False):
