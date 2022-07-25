@@ -258,14 +258,16 @@ physics : {
 	coincidencePath: [InternalTriggerFilter, muonFilter, clusterCoincidenceFinder, 
 		backwardsClusterCoincidenceFinder, deuteronsClusterCoincidenceFinder] 
 	
-	coincidencePathSigma: [InternalTriggerFilter, muonFilter, "!inFillLaserFilter", RWEmpiricalPileupHitClusterDAQ2Sigma, RWEmpiricalPileupHitClusterDAQ3Sigma, 
+	coincidencePathSigma: [InternalTriggerFilter, muonFilter, 
+		# "!inFillLaserFilter", 
+		RWEmpiricalPileupHitClusterDAQ2Sigma, RWEmpiricalPileupHitClusterDAQ3Sigma, 
 		clusterCoincidenceFinderSigma, 
 		clusterCoincidenceFinderSigmaWide, 
 		backwardsClusterCoincidenceFinderSigma, deuteronsClusterCoincidenceFinderSigma] 
 	anaPath: [clustersAndCoincidencesSigmaRand, 
 		# clustersAndCoincidencesRand,
 		# makeBUEmpiricalPileup,
-		lostMuonTree, 
+		# lostMuonTree, 
 		makeBUEmpiricalPileupSigma] 
 	
 	# List trigger (producer/filter) and end (analyzer/output) paths

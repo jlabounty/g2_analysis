@@ -1,30 +1,36 @@
 # Configuration file for an omega_a analysis
 
-dataset = ""
 blinding_file = "/home/jlab/github/g2_analysis/default.phrase"
 
-directory = ''
 
 [raw]
-file = ''
-hist_name       = ""
-uncor_hist_name = ""
-file_name       = ""
-loss_hist_name  = ""
-loss_file_name  = ""
+hist_name       = "clustersAndCoincidencesSigmaRand/cluster"
+loss_hist_name  = "clustersAndCoincidencesSigmaRand/triples"
 
 [pileup_corr]
-file = ''
 rebin = 1 # binning factor
+scale_factor = 1 # pileup scaling factor to apply
+pileup_name = 'pileupCorr'
 complete = false
+
+hist_folder   = "clustersAndCoincidencesSigmaRand"
+pileup_folder = 'BUEmpiricalPileupRWEmpiricalPileupHitClusterDAQ2Sigma'
 
 [fitting]
 complete = false 
 fit_start = 30.1384
 closest_zero_crossing = false
-fit_end = 400
-extended_fit_end = 650
+# fit_end = 400
+fit_end = 650
 calo_range = [1, 24]
+
+float_threshold = false # whether the energy threshold is fixed or allowed to float
+t_threshold_low  = 1700
+t_threshold_high = 3200
+
+float_a_threshold = false
+a_threshold_low  = 1000
+a_threshold_high = 3200
 
 [fitting.fits] # now lets do the fits in order, marking each one as complete as we go.
 do_t = true
@@ -32,24 +38,45 @@ do_a = false
 
 [fitting.fits.5]
 complete = false 
+params = [ ["N", 1e7, 'None', 'None', false],
+           ["$A_{0}$", 0.333, 'None', 'None', false],
+           ["R", 22, 'None', 'None', false],
+           ["$\tau$", 64.44, 10,100, false],
+           ["$\\phi$", 3.14, 0, 6.28318530717958, false],
+] #format: [paramName, guess, limit_low, limit_high]
 
 [fitting.fits.13]
 complete = false
+inherit_params = true
+inherit_from = 5
+
+params = [
+    ["$\tau_{cbo}$",200, 1, 1000, false],
+    ["$\\omega_{cbo}$",2.32, 'None', 'None', false],
+    ["$A_{NX11}$", 0.001, 0, 'None', false],
+    ["$\\phi_{NX11}$", 1.1, 0, 6.28318530717958, false],
+]
+
+
 
 [fitting.fits.18]
 complete = false
+inherit_params = true
+inherit_from = 13
 
-[fitting.fits.full]
+[fitting.fits.23]
 complete = false 
+inherit_params = true
+inherit_from = 18
 
 [scans]
-do_scans = false
+do_scans = true
 complete = false 
 scan_dir = '/scans/'
 
 [scans.calo]
 active = false 
-per_calo = false
+per_calo = true
 fit_par_fixes = []
 fit_par_limits = []
 fit_par_guesses  = []
@@ -57,6 +84,8 @@ fit_par_guesses  = []
 [scans.Ebinned]
 active = false 
 per_calo = false
+use_fit = '5'
+fit_end = 400
 
 min_E = 1000
 max_E = 2920
@@ -68,7 +97,8 @@ fit_par_guesses = []
 [scans.start_time]
 active = false 
 per_calo = false
-fig_par_fixes = []
+use_fit = '5'
+fit_par_fixes = []
 step = 0.5
 n_pts = 350
 
@@ -87,4 +117,33 @@ step = 1
 width = 30
 n_pts = 150
 
+[scans.pileup_scale]
+active = false 
+scale_factor_range = [0.9,1.1]
+n_pts = 10
 
+[scans.t_method_e_scan]
+active = true 
+per_calo = false 
+use_fit = '5'
+method = 't'
+
+fit_par_fixes = []
+
+min_start_E = 1300
+max_start_E = 2200
+min_end_E   = 3200
+max_end_E   = 3200
+
+[scans.a_method_e_scan]
+active = true 
+per_calo = false 
+use_fit = '5'
+method = 'a'
+
+fit_par_fixes = []
+
+min_start_E = 1000
+max_start_E = 2000
+min_end_E   = 2700
+max_end_E   = 3200
