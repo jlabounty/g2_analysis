@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 import matplotlib
 import hist
+import pandas
 
 methods = {
     0:'t',
@@ -357,19 +358,54 @@ class PrecessionAnalysis():
                 )
                 # return this_fit
                 # break
-        scan_output_config['scans'][scan_name][str(calo)]['complete'] = True
+            scan_output_config['scans'][scan_name][str(calo)]['complete'] = True
+        scan_output_config['scans'][scan_name]['complete'] = True
+        self.config['scans'][scan_name]['complete'] = True
         scan_output_config.update()
         self.config.update()
 
-    def plot_e_binned_scan(self, scan_name='Ebinned', calo=0, write=True):
+    def make_df_e_binned_scan(self, scan_name='Ebinned'):
+        '''loads the result of the energy binned analysis into a dataframe for plotting'''
 
+        scan_config = self.config['scans'][scan_name]
+        nbins = scan_config['n_bins']
+        scan_results = configuration.AnalysisConfig(str(scan_config['scan_file']))['scans'][scan_name]
+        # return scan_results
+        dfi = []
+        for calo in range(25):
+            if(f'{calo}' in scan_results):
+                for i in range(nbins):
+                    dicti = {'calo':calo, 'point':i}
+                    results = scan_results[f'{calo}'][f"{i}"]
+                    bin_edge_low = results['ebin_vals']
+                    bin_width = np.abs(bin_edge_low[0] - bin_edge_low[1])
+                    bin_center = np.mean(np.array(bin_edge_low) + bin_width)
+                    dicti['e'] = bin_center
 
+                    bin_edge_low += [bin_edge_low[-1] + bin_width]
+                    # print(bin_edge_low)
+                    dicti['e_width'] = np.abs(np.min(bin_edge_low) - np.max(bin_edge_low))/2.
+                    for i,x in enumerate(results['fitted_params']):
+                        dicti[x[0]] = x[1]
+                        dicti[f"{x[0]}_err"] = results['fitted_errors'][i]
+                    
+
+                    dfi.append(dicti)
+
+        df = pandas.DataFrame(dfi)
+        return df
+
+    def build_interpolators_e_binned(self, scan_name='Ebinned', calo=0, write=True):
         directory = os.path.join(self.config['directory'], 'scans', scan_name, f'calo{calo:02}')
         # assert os.path.exists(directory)
         os.system(f'mkdir -p {directory}')
 
-        scan_params = self.config['scans'][scan_name]
-        these_params = self.config['scans'][scan_name][str(calo)]
+        scan_params  = self.config['scans'][scan_name]
+        scan_file = scan_params['scan_file']
+
+        # these_params = self.config['scans'][scan_name][str(calo)]
+        scan_results = configuration.AnalysisConfig(str(scan_file))
+        these_params = scan_results['scans'][scan_name][f'{calo}']
         if(self.verbose):
             print(these_params.keys())
         if(self.verbose):
@@ -377,7 +413,7 @@ class PrecessionAnalysis():
         npar = len(these_params['0']['fitted_params'])
         nscans = scan_params['n_bins']
         nearest_square = int(np.ceil(np.sqrt(npar)))
-        fig, ax = plt.subplots(nearest_square,nearest_square, figsize=(5*nearest_square, 5*nearest_square), sharex=True)
+        # fig, ax = plt.subplots(nearest_square,nearest_square, figsize=(5*nearest_square, 5*nearest_square), sharex=True)
         interps = {}
         eaxis = self.h.clusters.axes[1]
         energies = [np.mean(eaxis.centers[ these_params[f'{i}']['ebins'][0]:these_params[f'{i}']['ebins'][-1]+1 ]) for i in range(nscans)]
@@ -392,29 +428,39 @@ class PrecessionAnalysis():
             print(energy_widths)
         xs = np.linspace(np.amin(energies), np.amax(energies), 1000)
         for i in range(npar):
-            axi = ax.ravel()[i]
+            # axi = ax.ravel()[i]
             pari = these_params['0']['fitted_params'][i][0]
-            axi.set_title(pari)
+            # axi.set_title(pari)
 
             pars     = [these_params[f'{j}']['fitted_params'][i][1] for j in range(nscans)]
             par_errs = [these_params[f'{j}']['fitted_errors'][i]    for j in range(nscans)]
 
-            axi.errorbar(x=energies,xerr=energy_widths,y=pars, yerr=par_errs, fmt='o:')
+            # axi.errorbar(x=energies,xerr=energy_widths,y=pars, yerr=par_errs, fmt='o:')
             # use the min/max values for those outside the interpolation range
             interps[pari] = interp1d(energies, pars, bounds_error=False, fill_value=0)
-            axi.plot(xs, interps[pari](xs), label='Interpolated')
-        plt.tight_layout()
+            # axi.plot(xs, interps[pari](xs), label='Interpolated')
+        # plt.tight_layout()
 
         if(write):
-            plt.savefig(os.path.join(directory,   'energy_binned_results.png'))
-            plt.savefig(os.path.join(directory,   'energy_binned_results.pdf'))
+            # plt.savefig(os.path.join(directory,   'energy_binned_results.png'))
+            # plt.savefig(os.path.join(directory,   'energy_binned_results.pdf'))
             interp_file = os.path.join(directory, 'energy_binned_interps.pickle')
             self.save_object(interps, interp_file)
+            self.config['scans'][scan_name][str(calo)] = tomlkit.table()
+            self.config['scans'][scan_name][str(calo)]['complete'] = True
             self.config['scans'][scan_name][str(calo)]['interp_file'] = interp_file
+            scan_results['scans'][scan_name][str(calo)]['interp_file'] = interp_file
             self.config.update()
+            scan_results.update()
 
 
-        return fig,ax,interps
+        return interps
+
+    def plot_energy_binned(self,scan_name='Ebinned'):
+        # scan_config = 
+        df = self.make_df_e_binned_scan(scan_name)
+        raise NotImplementedError
+
 
     '''
         ***************************************************************************
@@ -423,7 +469,6 @@ class PrecessionAnalysis():
     '''
     def make_df_energy_start_stop_scan(self, scan_name='t_method_e_scan', calo=0):
         '''turns the output of the energy_start_stop_scan function into a pandas df for plotting'''
-        import pandas 
         this_scan = self.config['scans'][scan_name]
         scan_file = this_scan['scan_file']
 
@@ -558,8 +603,109 @@ class PrecessionAnalysis():
             # df = make_df_energy_start_stop_scan(self, scan_name, calo)
             # df.to_csv(scan_outfile.replace('pickle','csv'))
 
+    '''
+        ***************************************************************************
+        Start/Stop time scan
+        ***************************************************************************
+    '''
+
+    def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
+        scan_params = self.config['scans'][scan_name]
+        outdir = os.path.join(self.config.get_directory(),'scans', scan_name)
+        scan_file = os.path.join(outdir, f'{scan_name}.toml')
+        os.system(f'mkdir -p {outdir}; touch {scan_file}')
+        config = configuration.AnalysisConfig(str(scan_file))
+        config['scans'] = tomlkit.table()
+        config['scans'][scan_name] = tomlkit.table()
+        config['scans'][scan_name]['outdir'] = str(outdir)
+        config['scans'][scan_name]['process_time'] = get_date()
+
+        return config
+        
+
+    def do_start_time_scan(self, scan_name='start_time', write=False):
+        '''do a start time scan and write the results to a toml file'''
+        scan_params = self.config['scans'][scan_name]
+        global_fit_params = self.config['fitting']
+        fit_params = self.config['fitting']['fits'][scan_params['use_fit']]
+
+        scan_results = make_scan_toml(self, scan_name)
+        outdir = scan_results['scans'][scan_name]['outdir']
+        # scan_params
+        self.config['scans'][scan_name]['scan_file'] = scan_results.infile 
 
 
+        if scan_params['method'] in fit_params:
+            # grab the completed X-method result
+            this_fit = self.load_object(fit_params[scan_params['method']]['file'])
+            this_fit.re_init()
+            if(self.verbose):
+                print(this_fit)
+        else:
+            raise NotImplementedError("Please do the main fit before a start time scan")
+
+        # fix the specified params, if any
+        # TODO: Implement this.
+
+        # determine the fit start times
+        nominal_start = global_fit_params['fit_start']
+        nominal_end = global_fit_params['fit_end']
+        if('fit_start' in scan_params):
+            nominal_start = scan_params['fit_start']
+        if('fit_end' in scan_params):
+            nominal_end = scan_params['fit_end']
+        step = scan_params['step']
+        n_points = scan_params['n_pts']
+        start_times = [nominal_start + i*step for i in range(n_points)]
+
+        # run the fits
+        time_axis = this_fit.hist.axes[0]
+        real_end_time = time_axis.edges[time_axis.index(nominal_end)+1]
+        for i, time in enumerate(start_times):
+            real_start_time = time_axis.edges[time_axis.index(time)]
+            dicti = {'fit_start':real_start_time, 'fit_end':real_end_time}
+            if(self.verbose):
+                print(f'Modified start time to align with bin edge: {time} -> {real_start_time}')
+            
+            this_fit.set_limits([real_start_time, nominal_end])
+            if(self.verbose):
+                print(f'{this_fit.limits=}')
+            this_fit.fit()
+
+            self.update_fit('', this_fit, thisdict=dicti, write=False)
+            if(write):
+                this_fit.write(os.path.join(scan_results['scans'][scan_name]['outdir'], f'fit_{i:05}.pickle'))
+
+            scan_results['scans'][scan_name][f'scan_{i:05}'] = dicti
+            # if(i > 10):
+            #     break
+
+        self.config.update()
+        scan_results.update()
+
+    def make_df_from_time_scan(self, scan_name, ref_point=0) -> pandas.DataFrame:
+        '''takes the result of a start/end time scan and returns a pandas dataframe for plotting'''
+        scan_file = self.config['scans'][scan_name]['scan_file']
+        print(f'{scan_file=}')
+
+        scan_results = configuration.AnalysisConfig(str(scan_file))
+        print(scan_results)
+
+        these_keys = [x for x in scan_results['scans'][scan_name].keys() if 'scan_' in x]
+        print(these_keys)
+
+        dfi = []
+        for i, key in enumerate(these_keys):
+            dicti = {'scan_point':int(key.split('_')[1])}
+            this_scan = scan_results['scans'][scan_name][key]
+            dicti['fit_start'] = this_scan['fit_start']
+            dicti['fit_end'] = this_scan['fit_end']
+            for i,x in enumerate(this_scan['fitted_params']):
+                dicti[x[0]] = x[1]
+                dicti[f"{x[0]}_err"] = this_scan['fitted_errors'][i]
+
+            dfi.append(dicti)
+        return pandas.DataFrame(dfi)
                         
 
 
