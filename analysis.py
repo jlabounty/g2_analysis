@@ -156,7 +156,7 @@ class PrecessionAnalysis():
 
         return hi  
 
-    def prepare_fit(self,fit='5',method=0, calo=0, hi=None, **kwargs):
+    def prepare_fit(self,fit='5',method=0, calo=0, hi=None, strip_nans=True, **kwargs):
         fit_function, fit_pars = self.prepare_fit_function(fit)
         if(self.verbose):
             print(f"{fit_pars=}")
@@ -185,6 +185,7 @@ class PrecessionAnalysis():
             names = fit_pars['names'],
             par_limits = lims,
             fixed_pars = fixed_pars,
+            strip_nans = strip_nans
             **kwargs
         )
         
@@ -214,6 +215,7 @@ class PrecessionAnalysis():
 
             self.config['fitting']['fits'][fitid][method]['fitted_params'] = fitted_params
             self.config['fitting']['fits'][fitid][method]['fitted_errors'] = list(thisfit.m.errors)
+            self.config['fitting']['fits'][fitid][method]['valid'] = thisfit.m.valid
             if(thisfit.m.fmin is not None):    
                 self.config['fitting']['fits'][fitid][method]['fitted_errors'] = list(thisfit.m.errors)
             self.config['fitting']['fits'][fitid][method]['fitted_cov'] = [list(x) for x in list(np.array(thisfit.m.covariance))]
@@ -224,6 +226,7 @@ class PrecessionAnalysis():
         else:
             thisdict['fitted_params'] = fitted_params
             thisdict['fitted_errors'] = list(thisfit.m.errors)
+            thisdict['valid'] = thisfit.m.valid
             thisdict['fitted_cov'] = [list(x) for x in list(np.array(thisfit.m.covariance))]
             if(write):
                 thisdict['file'] = output_file
@@ -289,6 +292,12 @@ class PrecessionAnalysis():
         ***************************************************************************
     '''
 
+    '''
+        ***************************************************************************
+        Helper functions
+        ***************************************************************************
+    '''
+
     def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
         scan_params = self.config['scans'][scan_name]
         outdir = os.path.join(self.config.get_directory(),'scans', scan_name)
@@ -301,6 +310,17 @@ class PrecessionAnalysis():
         config['scans'][scan_name]['process_time'] = get_date()
 
         return config
+
+    @staticmethod
+    def extract_fitted_params_from_toml(config):
+        assert 'fitted_params' in config 
+
+        dicti = {}
+        for i,x in enumerate(config['fitted_params']):
+            dicti[x[0]] = x[1]
+            dicti[f"{x[0]}_err"] = config['fitted_errors'][i]
+
+        return dicti
 
     '''
         ***************************************************************************
@@ -381,7 +401,7 @@ class PrecessionAnalysis():
         scan_output_config.update()
         self.config.update()
 
-    def make_df_e_binned_scan(self, scan_name='Ebinned'):
+    def make_df_e_binned_scan(self, scan_name='Ebinned') ->pandas.DataFrame:
         '''loads the result of the energy binned analysis into a dataframe for plotting'''
 
         scan_config = self.config['scans'][scan_name]
@@ -402,9 +422,10 @@ class PrecessionAnalysis():
                     bin_edge_low += [bin_edge_low[-1] + bin_width]
                     # print(bin_edge_low)
                     dicti['e_width'] = np.abs(np.min(bin_edge_low) - np.max(bin_edge_low))/2.
-                    for i,x in enumerate(results['fitted_params']):
-                        dicti[x[0]] = x[1]
-                        dicti[f"{x[0]}_err"] = results['fitted_errors'][i]
+                    dicti.update(self.extract_fitted_params_from_toml(results))
+                    # for i,x in enumerate(results['fitted_params']):
+                    #     dicti[x[0]] = x[1]
+                    #     dicti[f"{x[0]}_err"] = results['fitted_errors'][i]
                     
 
                     dfi.append(dicti)
@@ -484,7 +505,7 @@ class PrecessionAnalysis():
         Energy cut scan
         ***************************************************************************
     '''
-    def make_df_energy_start_stop_scan(self, scan_name='t_method_e_scan', calo=0):
+    def make_df_energy_start_stop_scan(self, scan_name='t_method_e_scan', calo=0) -> pandas.DataFrame:
         '''turns the output of the energy_start_stop_scan function into a pandas df for plotting'''
         this_scan = self.config['scans'][scan_name]
         scan_file = this_scan['scan_file']
@@ -505,9 +526,10 @@ class PrecessionAnalysis():
                 'elow':this_scan_point['elow'],
                 'ehigh':this_scan_point['ehigh'],
             }
-            for i, x in enumerate(this_scan_point['fitted_params']):
-                dicti[x[0]] = x[1]
-                dicti[f'{x[0]}_err'] = this_scan_point['fitted_errors'][i]
+            dicti.update(self.extract_fitted_params_from_toml(this_scan_point))
+            # for i, x in enumerate(this_scan_point['fitted_params']):
+            #     dicti[x[0]] = x[1]
+            #     dicti[f'{x[0]}_err'] = this_scan_point['fitted_errors'][i]
             dfi.append(dicti)
 
         df = pandas.DataFrame(dfi)
@@ -627,6 +649,90 @@ class PrecessionAnalysis():
         Start/Stop time scan
         ***************************************************************************
     '''
+
+    def do_stop_time_scan(self, scan_name='stop_time', write=False):
+        '''do a start time scan and write the results to a toml file'''
+        scan_params = self.config['scans'][scan_name]
+        global_fit_params = self.config['fitting']
+        fit_params = self.config['fitting']['fits'][scan_params['use_fit']]
+
+        scan_results = self.make_scan_toml(scan_name)
+        outdir = scan_results['scans'][scan_name]['outdir']
+        # scan_params
+        self.config['scans'][scan_name]['scan_file'] = scan_results.infile 
+
+
+        if(scan_params['per_calo']):
+            calos = list(range(25))
+        else:
+            calos = [0]
+
+        for calo in calos:
+            scan_results['scans'][scan_name][f'{calo}'] = tomlkit.table()
+            if(calo == 0):
+                if scan_params['method'] in fit_params:
+                    # grab the completed X-method result
+                    this_fit = self.load_object(fit_params[scan_params['method']]['file'])
+                    this_fit.re_init()
+                    if(self.verbose):
+                        print(this_fit)
+                else:
+                    raise NotImplementedError("Please do the main fit before a start time scan")
+            else:
+                # get from the calo scan
+                calo_scan_name = scan_params['calo_scan']
+                calo_scan_params = self.config['scans'][calo_scan_name]
+                if(f'{calo}' in calo_scan_params):
+                    if scan_params['method'] in calo_scan_params[f'{calo}']:
+                        # grab the completed X-method result
+                        this_fit = self.load_object(calo_scan_params[f'{calo}'][scan_params['method']]['file'])
+                        this_fit.re_init()
+                        if(self.verbose):
+                            print(this_fit)
+                    else:
+                        raise NotImplementedError("Please do the calo scan before a per-calo start time scan")
+                else:
+                        raise NotImplementedError("Please do the calo scan before a per-calo start time scan")
+
+
+            # fix the specified params, if any
+            # TODO: Implement this.
+
+            # determine the fit start times
+            nominal_start = global_fit_params['fit_start']
+            nominal_end   = global_fit_params['fit_end']
+            if('fit_start' in scan_params):
+                nominal_start = scan_params['fit_start']
+            if('fit_end' in scan_params):
+                nominal_end   = scan_params['fit_end']
+            step = scan_params['step']
+            n_points = scan_params['n_pts']
+            stop_times = [nominal_end - i*step for i in range(n_points)]
+
+            # run the fits
+            time_axis = this_fit.hist.axes[0]
+            real_start_time = time_axis.edges[time_axis.index(nominal_start)]
+            for i, time in enumerate(stop_times):
+                real_end_time = time_axis.edges[time_axis.index(time)+1]
+                dicti = {'fit_start':real_start_time, 'fit_end':real_end_time, 'calo':calo}
+                if(self.verbose):
+                    print(f'Modified stop time to align with bin edge: {time} -> {real_end_time}')
+                
+                this_fit.set_limits([real_start_time, real_end_time]) #TODO: check this isn't including an extra bin on the end...
+                if(self.verbose):
+                    print(f'{this_fit.limits=}')
+                this_fit.fit()
+
+                self.update_fit('', this_fit, thisdict=dicti, write=False)
+                if(write):
+                    this_fit.write(os.path.join(scan_results['scans'][scan_name]['outdir'], f'fit_{i:05}.pickle'))
+
+                scan_results['scans'][scan_name][f'scan_{i:05}'] = dicti
+                # if(i > 10):
+                #     break
+
+        self.config.update()
+        scan_results.update()
         
 
     def do_start_time_scan(self, scan_name='start_time', write=False):
@@ -635,83 +741,187 @@ class PrecessionAnalysis():
         global_fit_params = self.config['fitting']
         fit_params = self.config['fitting']['fits'][scan_params['use_fit']]
 
-        scan_results = make_scan_toml(self, scan_name)
+        scan_results = self.make_scan_toml(scan_name)
         outdir = scan_results['scans'][scan_name]['outdir']
         # scan_params
         self.config['scans'][scan_name]['scan_file'] = scan_results.infile 
 
 
-        if scan_params['method'] in fit_params:
-            # grab the completed X-method result
-            this_fit = self.load_object(fit_params[scan_params['method']]['file'])
-            this_fit.re_init()
-            if(self.verbose):
-                print(this_fit)
+        if(scan_params['per_calo']):
+            calos = list(range(25))
         else:
-            raise NotImplementedError("Please do the main fit before a start time scan")
+            calos = [0]
 
-        # fix the specified params, if any
-        # TODO: Implement this.
-
-        # determine the fit start times
-        nominal_start = global_fit_params['fit_start']
-        nominal_end = global_fit_params['fit_end']
-        if('fit_start' in scan_params):
-            nominal_start = scan_params['fit_start']
-        if('fit_end' in scan_params):
-            nominal_end = scan_params['fit_end']
-        step = scan_params['step']
-        n_points = scan_params['n_pts']
-        start_times = [nominal_start + i*step for i in range(n_points)]
-
-        # run the fits
-        time_axis = this_fit.hist.axes[0]
-        real_end_time = time_axis.edges[time_axis.index(nominal_end)+1]
-        for i, time in enumerate(start_times):
-            real_start_time = time_axis.edges[time_axis.index(time)]
-            dicti = {'fit_start':real_start_time, 'fit_end':real_end_time}
+        for calo in calos:
             if(self.verbose):
-                print(f'Modified start time to align with bin edge: {time} -> {real_start_time}')
-            
-            this_fit.set_limits([real_start_time, nominal_end])
-            if(self.verbose):
-                print(f'{this_fit.limits=}')
-            this_fit.fit()
+                print('Processing calo', calo)
+            scan_results['scans'][scan_name][f'{calo}'] = tomlkit.table()
+            if(calo == 0):
+                if scan_params['method'] in fit_params:
+                    # grab the completed X-method result
+                    print(f'{fit_params[scan_params["method"]]["file"]=}')
+                    this_fit = self.load_object(str(fit_params[scan_params['method']]['file']))
+                    this_fit.re_init()
+                    if(self.verbose):
+                        print(this_fit)
+                else:
+                    raise NotImplementedError("Please do the main fit before a start time scan")
+            else:
+                # get from the calo scan
+                calo_scan_name = scan_params['calo_scan']
+                calo_scan_params = self.config['scans'][calo_scan_name]
 
-            self.update_fit('', this_fit, thisdict=dicti, write=False)
-            if(write):
-                this_fit.write(os.path.join(scan_results['scans'][scan_name]['outdir'], f'fit_{i:05}.pickle'))
+                # print(f'{calo_scan_params=}')
+                calo_scan_results = configuration.AnalysisConfig(str(calo_scan_params['scan_file']))['scans'][calo_scan_name]
+                # print(f'{calo_scan_results=}')
+                if(f'{calo}' in calo_scan_results):
+                    # if scan_params['method'] in calo_scan_params[f'{calo}']:
+                        # grab the completed X-method result
+                    this_fit = self.load_object(calo_scan_results[f'{calo}']['file'])
+                    this_fit.re_init()
+                    if(self.verbose):
+                        print(this_fit)
+                    # else:
+                    #     raise NotImplementedError("Please do the calo scan before a per-calo start time scan")
+                else:
+                        raise NotImplementedError("Please do the calo scan before a per-calo start time scan")
 
-            scan_results['scans'][scan_name][f'scan_{i:05}'] = dicti
-            # if(i > 10):
-            #     break
+
+
+            # fix the specified params, if any
+            # TODO: Implement this.
+
+            # determine the fit start times
+            nominal_start = global_fit_params['fit_start']
+            nominal_end = global_fit_params['fit_end']
+            if('fit_start' in scan_params):
+                nominal_start = scan_params['fit_start']
+            if('fit_end' in scan_params):
+                nominal_end = scan_params['fit_end']
+            step = scan_params['step']
+            n_points = scan_params['n_pts']
+            start_times = [nominal_start + i*step for i in range(n_points)]
+
+            # run the fits
+            time_axis = this_fit.hist.axes[0]
+            real_end_time = time_axis.edges[time_axis.index(nominal_end)+1]
+            for i, time in enumerate(start_times):
+                real_start_time = time_axis.edges[time_axis.index(time)]
+                dicti = {'fit_start':real_start_time, 'fit_end':real_end_time, 'calo':calo}
+                if(self.verbose):
+                    print(f'Modified start time to align with bin edge: {time} -> {real_start_time}')
+                
+                this_fit.set_limits([real_start_time, nominal_end])
+                if(self.verbose):
+                    print(f'{this_fit.limits=}')
+                this_fit.fit()
+
+                self.update_fit('', this_fit, thisdict=dicti, write=False)
+                if(write):
+                    this_fit.write(os.path.join(scan_results['scans'][scan_name]['outdir'], f'fit_{i:05}.pickle'))
+
+                scan_results['scans'][scan_name][f'{calo}'][f'scan_{i:05}'] = dicti
+                # if(i > 10):
+                #     break
 
         self.config.update()
         scan_results.update()
 
-    def make_df_from_time_scan(self, scan_name, ref_point=0) -> pandas.DataFrame:
+    def make_df_from_time_scan(self, scan_name) -> pandas.DataFrame:
         '''takes the result of a start/end time scan and returns a pandas dataframe for plotting'''
         scan_file = self.config['scans'][scan_name]['scan_file']
-        print(f'{scan_file=}')
+        # print(f'{scan_file=}')
 
         scan_results = configuration.AnalysisConfig(str(scan_file))
-        print(scan_results)
-
-        these_keys = [x for x in scan_results['scans'][scan_name].keys() if 'scan_' in x]
-        print(these_keys)
+        # print(scan_results)
 
         dfi = []
-        for i, key in enumerate(these_keys):
-            dicti = {'scan_point':int(key.split('_')[1])}
-            this_scan = scan_results['scans'][scan_name][key]
-            dicti['fit_start'] = this_scan['fit_start']
-            dicti['fit_end'] = this_scan['fit_end']
-            for i,x in enumerate(this_scan['fitted_params']):
-                dicti[x[0]] = x[1]
-                dicti[f"{x[0]}_err"] = this_scan['fitted_errors'][i]
+        for calo in range(25):
+            if(f'{calo}' not in scan_results['scans'][scan_name]):
+                continue
+            these_keys = [x for x in scan_results['scans'][scan_name][f'{calo}'].keys() if 'scan_' in x]
+            # print(these_keys)
 
-            dfi.append(dicti)
+            for i, key in enumerate(these_keys):
+                dicti = {'scan_point':int(key.split('_')[1]), 'calo':calo}
+                this_scan = scan_results['scans'][scan_name][f'{calo}'][key]
+                dicti['fit_start'] = this_scan['fit_start']
+                dicti['fit_end'] = this_scan['fit_end']
+                dicti.update(self.extract_fitted_params_from_toml(this_scan))
+                # for i,x in enumerate(this_scan['fitted_params']):
+                #     dicti[x[0]] = x[1]
+                #     dicti[f"{x[0]}_err"] = this_scan['fitted_errors'][i]
+
+                dfi.append(dicti)
         return pandas.DataFrame(dfi)
                         
 
+    '''
+        ***************************************************************************
+        Calo by calo scan
+        ***************************************************************************
+    '''
 
+    def calo_by_calo_fit(self, scan_name='calo', write=True):
+        scan_params = self.config['scans'][scan_name]
+        scan_results = self.make_scan_toml(scan_name)
+        self.config['scans'][scan_name]['scan_file'] = scan_results.infile
+        method = scan_params['method']
+        fiti = scan_params['use_fit']
+        global_fit_params = self.config['fitting']
+        these_fit_params = self.config['fitting']['fits'][fiti]
+        if(method not in these_fit_params):
+            raise NotImplementedError("Please do the full fit before doing the per-calo fit")
+        
+
+        if(method == 't'):
+            h2 = self.h.t_method(global_fit_params['t_threshold_low'], global_fit_params['t_threshold_high'], -1)
+        elif(method == 'a'):
+            # h2 = self.h.a_method()
+            raise NotImplementedError
+        else:
+            raise NotImplementedError
+
+        print(f'{h2=}')
+
+        for calo in range(1,25):
+            dicti = {'calo':calo}
+            print('Processing calo:', calo)
+            hi = h2[:,hist.loc(calo)]
+            print(f'{hi=}')
+            this_fit = self.prepare_fit(
+                fiti, method, hi=hi, strip_nans=True
+            )
+            print(f'{this_fit=}')
+            this_fit.fit(2)
+
+            self.update_fit('', this_fit, thisdict=dicti, write=False)
+            if(write):
+                thisfile = os.path.join(scan_results['scans'][scan_name]['outdir'], f'fit_{scan_name}_calo_{calo:02}.pickle' )
+                this_fit.write(thisfile)
+                dicti['file'] = thisfile
+
+            scan_results['scans'][scan_name][f'{calo}'] = dicti
+            # break
+
+        scan_results.update()
+        self.config.update()
+
+
+    def load_calo_by_calo_df(self, scan_name='calo'):
+        '''load the results of calo_by_calo_fit into a df'''
+        scan_config = self.config['scans'][scan_name]
+        scan_file = scan_config['scan_file']
+        scan_results = configuration.AnalysisConfig(str(scan_file))
+
+        dfi = []
+        for calo in range(25):
+            if(f'{calo}' in scan_results['scans'][scan_name]):
+                dicti = {'calo':calo}
+                this_scan = scan_results['scans'][scan_name][f'{calo}']
+                dicti.update(self.extract_fitted_params_from_toml(this_scan))
+                dfi.append(dicti)
+                # for i,x in this_scan['fitted_params']:
+
+
+        return pandas.DataFrame(dfi)
