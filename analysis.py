@@ -145,9 +145,9 @@ class PrecessionAnalysis():
         if(self.h is None):
             self.apply_pileup_correction()
 
-        if(method == 0):
+        if(method == 0 or method == 't'):
             hi = self.h.t_method(pars['t_threshold_low'], pars['t_threshold_high'])
-        elif(method == 1):
+        elif(method == 1 or method == 'a'):
             if asym is None:
                 raise ValueError("Please provide asymmetry callable")
             hi = self.h.a_method(asym, pars['a_threshold_low'],pars['a_threshold_high'])
@@ -176,7 +176,10 @@ class PrecessionAnalysis():
             print(f"{fit_pars['fixed']=}")
         if(self.verbose):
             print(f'{fit_pars=}')
-        fixed_pars = [i for i,x in enumerate(fit_pars['fixed']) if x]
+        fixed_pars = [fit_pars['names'][i] for i,x in enumerate(fit_pars['fixed']) if x]
+        if(self.verbose):
+            print(f'{fixed_pars=}')
+
         this_fit = fitting.PyFit.from_hist(
             hi,
             fit_function,
@@ -185,7 +188,7 @@ class PrecessionAnalysis():
             names = fit_pars['names'],
             par_limits = lims,
             fixed_pars = fixed_pars,
-            strip_nans = strip_nans
+            strip_nans = strip_nans,
             **kwargs
         )
         
@@ -237,6 +240,38 @@ class PrecessionAnalysis():
 
 
         self.config.update()
+
+    def perform_fit_recursive(self,fit, method='t', hi=None, force=False, load=True, **kwargs):
+        '''goes down the chain of 'inherit_from' parameters and executes each fit'''
+        if(self.verbose):
+            print("Performing a fit:", fit, method)
+        these_fit_pars = self.config['fitting']['fits'][str(fit)]
+        if(type(method) is int):
+            method = methods[method]
+
+        if('inherit_from' in these_fit_pars):
+            if(self.verbose):
+                print('   -> First must evaluate:', these_fit_pars['inherit_from'])
+            self.perform_fit_recursive(str(these_fit_pars['inherit_from']), method=method, hi=hi, load=False, force=force, **kwargs)
+            if(self.verbose):
+                print('Continuing with', fit)
+        if(method in these_fit_pars and not force):
+            if(these_fit_pars[method]['complete']):
+                if(self.verbose):
+                    print('Fit was complete')
+                if('file' in these_fit_pars[method] and load):
+                    return self.load_object(these_fit_pars[method]['file'])
+                else:
+                    # print('Warning: fit was complete, but not saved to file.')
+                    return None 
+        # else:
+        if(self.verbose):
+            print('   -> Fit not found, performing fit')
+        this_fit = self.prepare_fit(fit, method, hi=hi, **kwargs)
+        this_fit.fit()
+        self.update_fit(fit, this_fit, method)
+        self.config.update()
+        return this_fit 
 
     def a_method_from_t_method(self, fit='5', ebinned_name='Ebinned', par_name='$A_{0}$', calo=0, 
                            hi=None, use_hist_errors=True, **kwargs):
@@ -562,12 +597,12 @@ class PrecessionAnalysis():
 
         for calo in calos:
             # get the main histogram, without collapsing the energy axis
-            if(method == 't'):
+            if(method == 't' or method == 0):
                 if(calo > 0):
                     h_e = self.h.clusters[:,:,hist.loc(calo)]
                 else:
                     h_e = self.h.clusters[:,:,::sum]
-            elif(method == 'a'):
+            elif(method == 'a' or method == 1):
                 ebinned_config = self.config['scans']['Ebinned'][str(calo)]
                 if(not ebinned_config['complete']):
                     raise ValueError("The energy binned scan for this calo is not complete")
