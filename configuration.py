@@ -35,6 +35,12 @@ class AnalysisConfig:
             raise FileNotFoundError('Please specify which file to update')
         self.dump(self.infile)
 
+    def reload(self):
+        if(self.infile is None):
+            raise FileNotFoundError
+        with open(self.infile, 'r') as f:
+            self.d = tomlkit.load(f)
+
     def _get_blinding_string(self):
         # print("getting blinding")
         if(self.blinding_phrase is None):
