@@ -145,3 +145,4 @@ other_studies/pileup_energy_leakage_geant/geant_sim/analysis/data
 **.prim
 **/.DAWN*
 **.heprep
+env_old.yml
