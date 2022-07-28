@@ -407,11 +407,95 @@ class PrecessionAnalysis():
         ***************************************************************************
     '''
 
+    def auto_process_scans(self, write=True, force=False):
+        scan_config = self.config['scans']
+        scan_dir = os.path.join(self.config['directory'], scan_config['scan_dir'])
+        os.system(f'mkdir -p {scan_dir}')
+        for key in scan_config:
+            this_scan = scan_config[key]
+            # print("Processing scan:", key)
+            # print(this_scan)
+            # print(type(this_scan))
+            if(type(this_scan) is tomlkit.items.Table):
+                print("Found scan:", key)
+                if('active' not in this_scan or 'type' not in this_scan):
+                    raise ValueError(f'ERROR: either type of scan or activity not specified -> {this_scan}')
+                if('complete' in this_scan and not force):
+                    if(this_scan['complete']):
+                        print("   -> Scan marked as complete. Skipping.")
+                        continue
+                if(this_scan['active']):
+                    print('      -> Active')
+                    to_perform, to_analyze = self.scan_type_to_function(this_scan['type'])
+                    print('          ->', to_perform, to_analyze)
+                    # continue
+                    to_perform(key)
+                    if(to_analyze is not None):
+                        df = to_analyze(key)
+                        outdir = os.path.join(scan_dir, key)
+                        if(write):
+                            os.system(f'mkdir -p {outdir}')
+                            df.to_csv(os.path.join(outdir, f'scan_result_{key}.csv'))
+                    this_scan['complete'] = True
+                    self.config.update()
+                else:
+                    print("      -> scan is inactive. Skipping.")
+        self.config.update()
+
+    def scan_type_to_function(self, scan_type):
+        match scan_type.upper():
+            case 'EBINNED':
+                return self.energy_binned_scan, self.make_df_e_binned_scan
+            case 'ENERGYCUT':
+                return self.energy_start_stop_scan, self.make_df_energy_start_stop_scan
+            case 'STARTTIME':
+                return self.do_start_time_scan, self.make_df_from_time_scan
+            case 'STOPTIME':
+                return self.do_stop_time_scan, self.make_df_from_time_scan
+            case 'SLIDINGWINDOW':
+                raise NotImplementedError
+            case 'PILEUPSCALE':
+                raise NotImplementedError
+            case 'CALO':
+                return self.calo_by_calo_fit, self.make_calo_by_calo_df
+            case _:
+                raise NotImplementedError
+
     '''
         ***************************************************************************
         Helper functions
         ***************************************************************************
     '''
+
+    def customize_fit_parameters(self, thisfit:fitting.PyFit, these_params:tomlkit.items.Table):
+        '''takes an existing PyFit object and applies any custom fit parameters/constraints'''
+
+        if('fit_end' in these_params):
+            thisfit.set_limits((thisfit.limits[0],these_params['fit_end']))
+        if('fit_start' in these_params):
+            thisfit.set_limits((these_params['fit_start'],thisfit.limits[1]))
+
+        if( 'fit_par_fixes' in these_params):
+            fit_par_fixes = these_params['fit_par_fixes']
+            if(self.verbose):
+                print(f'{fit_par_fixes=}')
+            for x in fit_par_fixes:
+                thisfit.m.fixed[fit_par_fixes] = True
+        if( 'fit_par_limits' in these_params):
+            fit_par_limits = these_params['fit_par_limits']
+            if(self.verbose):
+                print(f'{fit_par_limits=}')
+            for par,lims in fit_par_limits.items():
+                thisfit.m.limits[par] = lims
+        if( 'fit_par_guesses' in these_params):
+            fit_par_guesses = these_params['fit_par_guesses']
+            if(self.verbose):
+                print(f'{fit_par_guesses=}')
+            for par,lims in fit_par_guesses.items():
+                thisfit.m.values[par] = lims
+
+
+        return thisfit
 
     def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
         scan_params = self.config['scans'][scan_name]
@@ -451,18 +535,10 @@ class PrecessionAnalysis():
         scan_output_config = self.make_scan_toml(scan_name)
         scan_outfile = scan_output_config.infile
 
-        # scan_outfile = os.path.join(scan_dir, f'{scan_name}.toml')
-        # os.system(f'mkdir -p {scan_dir}; touch {scan_outfile}')
-        # scan_output_config = configuration.AnalysisConfig(str(scan_outfile))
-        # scan_output_config['scans'] = tomlkit.table()
-        # scan_output_config['scans'][scan_name] = tomlkit.table()
         self.config['scans'][scan_name]['scan_file'] = scan_outfile
         self.config.update()
 
         ebins = self.h.clusters.axes[1].edges
-        # ebins = ebins[ebins >= ebin_params['min_E']]
-        # ebins = ebins[ebins <  ebin_params['max_E']]
-
 
         ebin_bools = np.where((ebins >= ebin_params['min_E'])&(ebins < ebin_params['max_E']), True, False )
         ebin_ints = [i for i,x in enumerate(ebin_bools) if x]
@@ -496,11 +572,15 @@ class PrecessionAnalysis():
 
                 this_fit = self.prepare_fit(ebin_params['use_fit'], hi=this_histogram)
                 # TODO: Implement setting/fixing extra parameters based on ebin specific settings
-                if('fit_end' in ebin_params):
-                    this_fit.set_limits((this_fit.limits[0],ebin_params['fit_end']))
-                if('fit_start' in ebin_params):
-                    this_fit.set_limits((ebin_params['fit_start'],this_fit.limits[1]))
-                
+                # if('fit_end' in ebin_params):
+                #     this_fit.set_limits((this_fit.limits[0],ebin_params['fit_end']))
+                # if('fit_start' in ebin_params):
+                #     this_fit.set_limits((ebin_params['fit_start'],this_fit.limits[1]))
+                print(f"{this_fit=}")
+                print(f"{this_fit.limits=}")
+                this_fit = self.customize_fit_parameters(this_fit, ebin_params)
+                print(f"{this_fit=}")
+                print(f"{this_fit.limits=}")
                 this_fit.fit()
                 outfile = os.path.join(scan_dir, f'fit_calo{calo:02}_bins{i:03}.pickle')
                 this_fit.write(outfile)
@@ -508,8 +588,7 @@ class PrecessionAnalysis():
                 scan_output_config['scans'][scan_name][str(calo)][str(i)] = self.update_fit(
                     'scan', this_fit, write=False, thisdict=scan_output_config['scans'][scan_name][str(calo)][str(i)]
                 )
-                # return this_fit
-                # break
+
             scan_output_config['scans'][scan_name][str(calo)]['complete'] = True
         scan_output_config['scans'][scan_name]['complete'] = True
         self.config['scans'][scan_name]['complete'] = True
@@ -526,6 +605,7 @@ class PrecessionAnalysis():
         dfi = []
         for calo in range(25):
             if(f'{calo}' in scan_results):
+                self.build_interpolators_e_binned(scan_name=scan_name, calo=calo)
                 for i in range(nbins):
                     dicti = {'calo':calo, 'point':i}
                     results = scan_results[f'{calo}'][f"{i}"]
@@ -739,6 +819,7 @@ class PrecessionAnalysis():
                     thisdict['ehigh'] = binhigh + binwidth
                     hi = h_e[:,hist.loc(binlow):hist.loc(binhigh):sum]
                     this_fit = self.prepare_fit(scan_config['use_fit'], hi=hi)
+                    this_fit = self.customize_fit_parameters(this_fit, scan_config)
                     if(self.verbose):
                         print(this_fit)
                     this_fit.fit()
@@ -811,7 +892,7 @@ class PrecessionAnalysis():
 
 
             # fix the specified params, if any
-            # TODO: Implement this.
+            this_fit = self.customize_fit_parameters(this_fit, scan_params)
 
             # determine the fit start times
             nominal_start = global_fit_params['fit_start']
@@ -904,7 +985,7 @@ class PrecessionAnalysis():
 
 
             # fix the specified params, if any
-            # TODO: Implement this.
+            this_fit = self.customize_fit_parameters(this_fit, scan_params)
 
             # determine the fit start times
             nominal_start = global_fit_params['fit_start']
@@ -1007,6 +1088,7 @@ class PrecessionAnalysis():
             this_fit = self.prepare_fit(
                 fiti, method, hi=hi, strip_nans=True
             )
+            this_fit = self.customize_fit_parameters(this_fit, scan_params)
             print(f'{this_fit=}')
             this_fit.fit(2)
 
@@ -1023,7 +1105,7 @@ class PrecessionAnalysis():
         self.config.update()
 
 
-    def load_calo_by_calo_df(self, scan_name='calo'):
+    def make_calo_by_calo_df(self, scan_name='calo'):
         '''load the results of calo_by_calo_fit into a df'''
         scan_config = self.config['scans'][scan_name]
         scan_file = scan_config['scan_file']
