@@ -11,6 +11,7 @@ loss_hist_name  = "clustersAndCoincidencesSigmaRand/triples"
 rebin = 1 # binning factor
 scale_factor = 1 # pileup scaling factor to apply
 pileup_name = 'pileupCorr'
+complete = false
 
 hist_folder   = "clustersAndCoincidencesSigmaRand"
 pileup_folder = 'BUEmpiricalPileupRWEmpiricalPileupHitClusterDAQ2Sigma'
@@ -80,7 +81,7 @@ inherit_from = 9
 params = [
     ["$\tau_{y}$", 50.0, 10.0,300.0,false],
     ["$\\omega_{VW}$", 14, 12,15,false],
-    ["$A_{NY22}$",0.001, 0.0, inf, false],
+    ["$A_{NY22}$",0.001, 0.0, +inf, false],
     ["$\\phi_{NY22}$", 1.0, 0.0, 6.29, false],
 ]
 
@@ -139,26 +140,8 @@ do_scans = true
 complete = false 
 scan_dir = '/scans/'
 
-[scans.calo]
-active = false 
-per_calo = true
-use_fit = '5'
-method = 't'
-fit_par_fixes = []
-fit_par_limits = []
-fit_par_guesses  = []
-
-[scans.calo_a]
-active = false 
-per_calo = true
-use_fit = '5'
-method = 'a'
-fit_par_fixes    = []
-fit_par_limits   = []
-fit_par_guesses  = []
-
 [scans.Ebinned]
-active = false 
+active = true 
 per_calo = false
 use_fit = '5'
 fit_end = 400
@@ -167,11 +150,29 @@ min_E = 1000
 max_E = 2920
 n_bins = 32
 fit_par_fixes = []
-fit_par_limits = []
-fit_par_guesses = []
+fit_par_limits = {}
+fit_par_guesses = {}
+
+[scans.calo]
+active = true 
+per_calo = true
+use_fit = '5'
+method = 't'
+fit_par_fixes = []
+fit_par_limits = {}
+fit_par_guesses  = {}
+
+[scans.calo_a]
+active = true 
+per_calo = true
+use_fit = '5'
+method = 'a'
+fit_par_fixes    = []
+fit_par_limits   = {}
+fit_par_guesses  = {}
 
 [scans.start_time]
-active = false 
+active = true 
 per_calo = false
 use_fit = '5'
 method = 't'
@@ -180,7 +181,7 @@ step = 0.5
 n_pts = 350
 
 [scans.start_time_by_calo]
-active = false 
+active = true 
 per_calo = true
 use_fit = '5'
 method = 't'
@@ -190,7 +191,7 @@ n_pts = 30
 calo_scan = "calo"
 
 [scans.stop_time]
-active = false 
+active = true 
 per_calo = false
 use_fit = '5'
 method = 't'

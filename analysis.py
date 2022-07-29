@@ -79,7 +79,7 @@ class PrecessionAnalysis():
         self.h = h
         return self.h
 
-    def get_fit_params(self, fit='5', method=0):
+    def get_fit_params(self, fit='5', method=0, force=False):
         these_params = self.config['fitting']['fits'][fit]
 
         # default to global params
@@ -89,7 +89,7 @@ class PrecessionAnalysis():
         if(type(method) is int):
             method = methods[method]
         if(method in these_params):
-            if(these_params[method]['complete']): # unless the fit was already completed
+            if(these_params[method]['complete'] and not force): # unless the fit was already completed
                 method_found = True
                 par_names, par_guesses, par_lim_low, par_lim_high, par_fixed = zip(*these_params[method]['fitted_params'])
             elif('params' in these_params[method]): # or we have t/a method specific guesses defined
@@ -110,13 +110,14 @@ class PrecessionAnalysis():
         if('inherit_params' in these_params and these_params['inherit_params'] and not these_params['complete']):
             '''dont do this if we have the complete params'''
             if(not method_found):
-                additional_params = self.get_fit_params(str(these_params['inherit_from']), method)
+                additional_params = self.get_fit_params(str(these_params['inherit_from']), method, force=force)
+                
                 for x in di:
                     di[x] = additional_params[x] + di[x]
 
         return di
 
-    def get_loss_spectrum(self, calo=0, name=None, normalize=True, norm_hist=None, norm_name=None):
+    def get_loss_spectrum(self, calo:int=0, name:str=None, normalize:bool=True, norm_hist:hist.Hist=None, norm_name:str=None) -> hist.Hist:
         '''load the triples from the gm2histogram object'''
         assert self.h is not None, "Please load a gm2histogram object"
         if(name is not None):
@@ -129,9 +130,10 @@ class PrecessionAnalysis():
         thigh = fit_params['fit_end']
 
         if(normalize):
+            print(f'{norm_hist=}')
             if(norm_hist is None):
                 if(norm_name is not None):
-                    norm_hist = self.h.ctag 
+                    norm_hist = 1.0*self.h.t_method(fit_params['t_threshold_low'], fit_params['t_threshold_high'], calo=calo) 
                 else:
                     norm_hist = self.h.histograms[norm_name]
             # need to make copy to change storage type from Int to Double for scaling to work
@@ -141,8 +143,14 @@ class PrecessionAnalysis():
                 loss_2d_double += loss_2d.view().value
             except:
                 loss_2d_double += loss_2d.view()#.value
-
-            loss_2d_double *= (1.0/norm_hist[hist.loc(tlow):hist.loc(thigh):sum])
+            print(f'{norm_hist=}')
+            print(type(norm_hist))
+            print(norm_hist[hist.loc(tlow):hist.loc(thigh):sum])
+            normi = norm_hist[hist.loc(tlow):hist.loc(thigh):sum]
+            if(type(normi) == hist.accumulators.WeightedSum):
+                normi = normi.value
+            
+            loss_2d_double *= (1.0/normi)
             loss_2d = loss_2d_double
         
         if(calo > 0):
@@ -153,12 +161,14 @@ class PrecessionAnalysis():
             return loss_2d
 
 
-    def prepare_fit_function(self, fit='5', method=0, write=True, calo=0, hi=None, 
+    def prepare_fit_function(self, fit='5', method=0, write=False, calo=0, hi=None, 
+                                   loss_hist = None,
+                                   force=False,
                                    cbo_frequency_model=0, cbo_frequency_params=None):
         this_config = self.config['fitting']['fits'][fit]
         if(self.verbose):
             print(this_config)
-        fit_params = self.get_fit_params(fit, method)
+        fit_params = self.get_fit_params(fit, method, force=force)
         if(self.verbose):
             print(fit_params)
         if(this_config['complete'] or ('function_file' in this_config)):
@@ -170,7 +180,10 @@ class PrecessionAnalysis():
             assert set(fit_params['names']) == set(this_fit.params), f'ERROR: the params in the loaded file do not match! {fit_params} vs. {this_fit.params}'
         else:
             if('$K_{loss}$' in fit_params['names']):
-                loss_spectrum = self.get_loss_spectrum(calo=calo, norm_hist=hi)
+                if(loss_hist is None):
+                    loss_spectrum = self.get_loss_spectrum(calo=calo, norm_hist=hi)
+                else:
+                    loss_spectrum = loss_hist
             else:
                 loss_spectrum = None
             this_fit = analysis.fitting.FullOmegaAFit(
@@ -182,20 +195,41 @@ class PrecessionAnalysis():
                 cbo_frequency_params=cbo_frequency_params
             )
             if(write):
-                this_hash = hash(json.dumps(this_config, sort_keys=True))
-                outfile = os.path.join(self.config['directory'], 'fits', f'fit_function_{fit}_{this_hash}.pickle')
+                # this_hash = hash(json.dumps(this_config, sort_keys=True))
+                outfile = os.path.join(self.config['directory'], 'fits', f'fit_function_{fit}.pickle')
                 this_fit.save(outfile)
                 self.config['fitting']['fits'][fit]['function_file'] = outfile
             self.config.update()
         return this_fit, fit_params
 
-    def prepare_histogram(self, pars, method=0, calo=0, asym=None):
+    def prepare_histogram(self, pars, method=0, calo=0, asym=None, asym_name:str='$A_{0}$') -> hist.Hist:
         assert self.h is not None, 'Please initialize the gm2histogram object (run apply_pileup_correction())'            
         if(method == 0 or method == 't'):
             hi = self.h.t_method(pars['t_threshold_low'], pars['t_threshold_high'])
         elif(method == 1 or method == 'a'):
             if asym is None:
-                raise ValueError("Please provide asymmetry callable")
+                # identify the assymetry callable based on the scan name in the parameters
+                if('asym_callable' in pars):
+                    if(self.verbose):
+                        print('Loading asym using asym_callable')
+                    asym = self.load_object(pars['asym_callable'])
+                elif('asym_callable_file' in pars):
+                    if(self.verbose):
+                        print('Loading asym using asym_callable_file')
+                    all_callables = self.load_object(pars['asym_callable_file'])
+                    asym = all_callables[asym_name]
+                elif('asym_scan' in pars):
+                    if(self.verbose):
+                        print('Loading asym using asym_scan')
+                    scan_config = self.config['scans'][pars['asym_scan']]
+                    if(str(calo) not in scan_config):
+                        raise FileNotFoundError(f"Unable to find callable file for calo {calo}")
+                    all_callables = self.load_object(
+                        scan_config[f'{calo}']['interp_file']
+                    )
+                    asym = all_callables[asym_name]
+                else:
+                    raise ValueError("Please provide asymmetry callable")
             hi = self.h.a_method(asym, pars['a_threshold_low'],pars['a_threshold_high'])
         else:
             raise NotImplementedError()
@@ -218,7 +252,7 @@ class PrecessionAnalysis():
                 return model, [params['A'], params['tau_a'], params['B'], params['tau_b']]
 
 
-    def prepare_fit(self,fit='5',method=0, calo=0, hi=None, strip_nans=True, loss_hist=None, **kwargs):
+    def prepare_fit(self,fit='5',method=0, calo=0, hi=None, strip_nans=True, force=False, **kwargs):
         other_pars = self.config['fitting']
         this_fit_config = self.config['fitting']['fits'][str(fit)]
         if(hi is None):
@@ -230,12 +264,19 @@ class PrecessionAnalysis():
             cbo_frequency_model, cbo_frequency_params = self.load_cbo_freq(this_fit_config['cbo_model'])
         elif('cbo_model' in other_pars):
             cbo_frequency_model, cbo_frequency_params = self.load_cbo_freq(other_pars['cbo_model'])
+
+        loss_hist=None
+        if('loss_histogram' in this_fit_config):
+            print('Using manually specified losses histogram')
+            loss_hist = self.load_object(this_fit_config['loss_histogram'])
         
         if(self.verbose):
             print(f'{cbo_frequency_model=}')
             print(f'{cbo_frequency_params=}')
 
-        fit_function, fit_pars = self.prepare_fit_function(fit, calo=calo, hi=hi, 
+        fit_function, fit_pars = self.prepare_fit_function(fit, calo=calo, hi=hi,
+            loss_hist = loss_hist, 
+            force=force,
             cbo_frequency_model = cbo_frequency_model, cbo_frequency_params=cbo_frequency_params)
         
         if(self.verbose):
@@ -268,6 +309,7 @@ class PrecessionAnalysis():
             strip_nans = strip_nans,
             **kwargs
         )
+        self.customize_fit_parameters(this_fit, this_fit_config)
         
         return this_fit
 
@@ -320,7 +362,26 @@ class PrecessionAnalysis():
 
         self.config.update()
 
-    def perform_fit_recursive(self,fit, method='t', hi=None, force=False, load=True, do_top_fit=True, **kwargs):
+    def fix_previous_parameters(self, fit, fit1, fit2):
+        '''fixes the parameters in fit which appear in fit2 and which are not already fixed'''
+        these_params = self.get_fit_params(str(fit1))
+        prev_params  = self.get_fit_params(str(fit2))
+
+        params = []
+        for x in prev_params['names']:
+            if( not fit.m.fixed[x]):
+                fit.m.fixed[x] = True
+                params.append(x)
+
+        return params
+
+    def unfix_parameters(self, fit:fitting.PyFit, params)->fitting.PyFit:
+        for x in params:
+            fit.m.fixed[x] = False
+        return fit
+
+
+    def perform_fit_recursive(self,fit, method='t', hi=None, force=False, load=True, do_top_fit=True, fix_previous=False, nfit=2, **kwargs):
         '''goes down the chain of 'inherit_from' parameters and executes each fit'''
         if(self.verbose):
             print("Performing a fit:", fit, method)
@@ -328,10 +389,11 @@ class PrecessionAnalysis():
         if(type(method) is int):
             method = methods[method]
 
+        result = None
         if('inherit_from' in these_fit_pars):
             if(self.verbose):
                 print('   -> First must evaluate:', these_fit_pars['inherit_from'])
-            self.perform_fit_recursive(str(these_fit_pars['inherit_from']), method=method, hi=hi, load=False, force=force, do_top_fit=True, **kwargs)
+            result = self.perform_fit_recursive(str(these_fit_pars['inherit_from']), method=method, hi=hi, load=False, force=force, fix_previous=fix_previous, nfit=nfit, do_top_fit=True, **kwargs)
             if(self.verbose):
                 print('Continuing with', fit)
         if(method in these_fit_pars and not force):
@@ -346,15 +408,25 @@ class PrecessionAnalysis():
         # else:
         if(self.verbose):
             print('   -> Fit not found, performing fit')
-        this_fit = self.prepare_fit(fit, method, hi=hi, **kwargs)
+        this_fit = self.prepare_fit(fit, method, hi=hi, force=force, **kwargs)
+            
+        if('inherit_from' in these_fit_pars):
+            if(fix_previous):
+                print(f"{this_fit.m.fixed=}")
+                prev_params = self.fix_previous_parameters(this_fit, fit, these_fit_pars['inherit_from'])
+                print(f"{this_fit.m.fixed=}")
+                if(do_top_fit):
+                    this_fit.fit()
+                    self.unfix_parameters(this_fit, prev_params)
+                    print(f"{this_fit.m.fixed=}")
         if(do_top_fit):
-            this_fit.fit()
+            this_fit.fit(nfit)
             self.update_fit(fit, this_fit, method)
             self.config.update()
         return this_fit 
 
     def a_method_from_t_method(self, fit='5', ebinned_name='Ebinned', par_name='$A_{0}$', calo=0, 
-                           hi=None, use_hist_errors=True, **kwargs):
+                           hi=None, use_hist_errors=True, force=False, **kwargs):
         '''prepare an a-method fit given the corresponding t-method fit and an asym weighted histogram'''
         ebinned_config = self.config['scans'][ebinned_name][f'{calo}']
         global_fit_config = self.config['fitting']
@@ -369,7 +441,7 @@ class PrecessionAnalysis():
                     calo=calo)
 
         this_fit = self.prepare_fit(
-            fit,calo=calo, hi=hi, use_hist_errors=use_hist_errors, **kwargs
+            fit,calo=calo, hi=hi, use_hist_errors=use_hist_errors,force=force, **kwargs
         )
 
         return this_fit
@@ -418,29 +490,42 @@ class PrecessionAnalysis():
             # print(type(this_scan))
             if(type(this_scan) is tomlkit.items.Table):
                 print("Found scan:", key)
-                if('active' not in this_scan or 'type' not in this_scan):
-                    raise ValueError(f'ERROR: either type of scan or activity not specified -> {this_scan}')
-                if('complete' in this_scan and not force):
-                    if(this_scan['complete']):
-                        print("   -> Scan marked as complete. Skipping.")
-                        continue
-                if(this_scan['active']):
-                    print('      -> Active')
-                    to_perform, to_analyze = self.scan_type_to_function(this_scan['type'])
-                    print('          ->', to_perform, to_analyze)
-                    # continue
-                    to_perform(key)
-                    if(to_analyze is not None):
-                        df = to_analyze(key)
-                        outdir = os.path.join(scan_dir, key)
-                        if(write):
-                            os.system(f'mkdir -p {outdir}')
-                            df.to_csv(os.path.join(outdir, f'scan_result_{key}.csv'))
-                    this_scan['complete'] = True
-                    self.config.update()
-                else:
-                    print("      -> scan is inactive. Skipping.")
+                self.process_systematic_scan(key, write=write, force=force)
+                
         self.config.update()
+
+    def process_systematic_scan(self, scan_name:str, write:bool=True, force:bool=False) -> pandas.DataFrame|None:
+        '''perform a single systematic scan based on the key in scan_type_to_function()'''
+        this_scan = self.config['scans'][scan_name]
+        scan_dir = os.path.join(self.config['directory'], self.config['scans']['scan_dir'])
+        outdir = os.path.join(scan_dir, scan_name)
+        scan_csv = os.path.join(outdir, f'scan_result_{scan_name}.csv')
+        if('active' not in this_scan or 'type' not in this_scan):
+            raise ValueError(f'ERROR: either type of scan or activity not specified -> {this_scan}')
+        if('complete' in this_scan and not force):
+            if(this_scan['complete']):
+                print("   -> Scan marked as complete. Skipping processing.")
+                if(os.path.exists(scan_csv)):
+                    return pandas.read_csv(scan_csv)
+                return None
+        if(this_scan['active']):
+            print('      -> Active')
+            to_perform, to_analyze = self.scan_type_to_function(this_scan['type'])
+            print('          ->', to_perform, to_analyze)
+            # continue
+            to_perform(scan_name)
+            df = None
+            if(to_analyze is not None):
+                df = to_analyze(scan_name)
+                if(write):
+                    os.system(f'mkdir -p {outdir}')
+                    df.to_csv(scan_csv)
+            this_scan['complete'] = True
+            self.config.update()
+            return df
+        else:
+            print("      -> scan is inactive. Skipping.")
+
 
     def scan_type_to_function(self, scan_type):
         match scan_type.upper():
@@ -494,12 +579,15 @@ class PrecessionAnalysis():
             for par,lims in fit_par_guesses.items():
                 thisfit.m.values[par] = lims
 
+        if('do_minos' in these_params):
+            thisfit.do_minos = these_params['do_minos']
+
 
         return thisfit
 
     def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
         scan_params = self.config['scans'][scan_name]
-        outdir = os.path.join(self.config.get_directory(),'scans', scan_name)
+        outdir = os.path.join(self.config.get_directory(), scan_params['scan_dir'], scan_name)
         scan_file = os.path.join(outdir, f'{scan_name}.toml')
         os.system(f'mkdir -p {outdir}; touch {scan_file}')
         config = configuration.AnalysisConfig(str(scan_file))
@@ -576,11 +664,11 @@ class PrecessionAnalysis():
                 #     this_fit.set_limits((this_fit.limits[0],ebin_params['fit_end']))
                 # if('fit_start' in ebin_params):
                 #     this_fit.set_limits((ebin_params['fit_start'],this_fit.limits[1]))
-                print(f"{this_fit=}")
-                print(f"{this_fit.limits=}")
+                # print(f"{this_fit=}")
+                # print(f"{this_fit.limits=}")
                 this_fit = self.customize_fit_parameters(this_fit, ebin_params)
-                print(f"{this_fit=}")
-                print(f"{this_fit.limits=}")
+                # print(f"{this_fit=}")
+                # print(f"{this_fit.limits=}")
                 this_fit.fit()
                 outfile = os.path.join(scan_dir, f'fit_calo{calo:02}_bins{i:03}.pickle')
                 this_fit.write(outfile)
@@ -590,6 +678,7 @@ class PrecessionAnalysis():
                 )
 
             scan_output_config['scans'][scan_name][str(calo)]['complete'] = True
+            scan_output_config.update()
         scan_output_config['scans'][scan_name]['complete'] = True
         self.config['scans'][scan_name]['complete'] = True
         scan_output_config.update()
