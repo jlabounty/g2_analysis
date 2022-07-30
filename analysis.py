@@ -80,6 +80,8 @@ class PrecessionAnalysis():
         return self.h
 
     def get_fit_params(self, fit='5', method=0, force=False):
+        if(self.verbose):
+            print(f"Getting fit parameters for: {fit=}, {method=}, {force=}")
         these_params = self.config['fitting']['fits'][fit]
 
         # default to global params
@@ -91,6 +93,8 @@ class PrecessionAnalysis():
         if(method in these_params):
             if(these_params[method]['complete'] and not force): # unless the fit was already completed
                 method_found = True
+                if(self.verbose):
+                    print(f'Found previous fit for: {fit=} {method=}!')
                 par_names, par_guesses, par_lim_low, par_lim_high, par_fixed = zip(*these_params[method]['fitted_params'])
             elif('params' in these_params[method]): # or we have t/a method specific guesses defined
                 par_names, par_guesses, par_lim_low, par_lim_high, par_fixed = zip(*these_params[method]['params'])
@@ -110,11 +114,12 @@ class PrecessionAnalysis():
         if('inherit_params' in these_params and these_params['inherit_params'] and not these_params['complete']):
             '''dont do this if we have the complete params'''
             if(not method_found):
-                additional_params = self.get_fit_params(str(these_params['inherit_from']), method, force=force)
-                
+                additional_params = self.get_fit_params(str(these_params['inherit_from']), method=method, force=force)
                 for x in di:
                     di[x] = additional_params[x] + di[x]
 
+        if(self.verbose):
+            print(f"Fit parameters identified for {fit=}|{method=}: {di}")
         return di
 
     def get_loss_spectrum(self, calo:int=0, name:str=None, normalize:bool=True, norm_hist:hist.Hist=None, norm_name:str=None) -> hist.Hist:
@@ -167,10 +172,11 @@ class PrecessionAnalysis():
                                    cbo_frequency_model=0, cbo_frequency_params=None):
         this_config = self.config['fitting']['fits'][fit]
         if(self.verbose):
-            print(this_config)
-        fit_params = self.get_fit_params(fit, method, force=force)
+            print(f"Preparing fit function for {fit=}, {method=}, {calo=}, {hi=}, {loss_hist=}, {cbo_frequency_model=}, {cbo_frequency_params=}")
+            print(f'{this_config=}')
+        fit_params = self.get_fit_params(fit, method=method, force=force)
         if(self.verbose):
-            print(fit_params)
+            print(f"Fit parameters for fit {fit}|{method}{calo} -> {fit_params=}")
         if(this_config['complete'] or ('function_file' in this_config)):
             if(self.verbose):
                 print('Loading from fit file!') #TODO: implement file save/load
@@ -228,6 +234,16 @@ class PrecessionAnalysis():
                         scan_config[f'{calo}']['interp_file']
                     )
                     asym = all_callables[asym_name]
+                elif('asym_scan' in self.config['fitting']):
+                    if(self.verbose):
+                        print('Loading asym using GLOBAL asym_scan')
+                    scan_config = self.config['scans'][self.config['fitting']['asym_scan']]
+                    if(str(calo) not in scan_config):
+                        raise FileNotFoundError(f"Unable to find callable file for calo {calo}")
+                    all_callables = self.load_object(
+                        scan_config[f'{calo}']['interp_file']
+                    )
+                    asym = all_callables[asym_name]
                 else:
                     raise ValueError("Please provide asymmetry callable")
             hi = self.h.a_method(asym, pars['a_threshold_low'],pars['a_threshold_high'])
@@ -252,7 +268,9 @@ class PrecessionAnalysis():
                 return model, [params['A'], params['tau_a'], params['B'], params['tau_b']]
 
 
-    def prepare_fit(self,fit='5',method=0, calo=0, hi=None, strip_nans=True, force=False, **kwargs):
+    def prepare_fit(self, fit='5',method=0, calo=0, hi=None, strip_nans=True, force=False, **kwargs):
+        if(self.verbose):
+            print(f'Preparing fit:, {fit=}, {method=}, {calo=}, {hi=}')
         other_pars = self.config['fitting']
         this_fit_config = self.config['fitting']['fits'][str(fit)]
         if(hi is None):
@@ -275,9 +293,12 @@ class PrecessionAnalysis():
             print(f'{cbo_frequency_params=}')
 
         fit_function, fit_pars = self.prepare_fit_function(fit, calo=calo, hi=hi,
+            method=method,
             loss_hist = loss_hist, 
             force=force,
-            cbo_frequency_model = cbo_frequency_model, cbo_frequency_params=cbo_frequency_params)
+            cbo_frequency_model = cbo_frequency_model, 
+            cbo_frequency_params=cbo_frequency_params
+        )
         
         if(self.verbose):
             print(f"{fit_pars=}")
@@ -362,10 +383,10 @@ class PrecessionAnalysis():
 
         self.config.update()
 
-    def fix_previous_parameters(self, fit, fit1, fit2):
+    def fix_previous_parameters(self, fit, fit1, fit2, method=0):
         '''fixes the parameters in fit which appear in fit2 and which are not already fixed'''
-        these_params = self.get_fit_params(str(fit1))
-        prev_params  = self.get_fit_params(str(fit2))
+        these_params = self.get_fit_params(str(fit1),method=method)
+        prev_params  = self.get_fit_params(str(fit2),method=method)
 
         params = []
         for x in prev_params['names']:
@@ -413,7 +434,7 @@ class PrecessionAnalysis():
         if('inherit_from' in these_fit_pars):
             if(fix_previous):
                 print(f"{this_fit.m.fixed=}")
-                prev_params = self.fix_previous_parameters(this_fit, fit, these_fit_pars['inherit_from'])
+                prev_params = self.fix_previous_parameters(this_fit, fit, these_fit_pars['inherit_from'], method=method)
                 print(f"{this_fit.m.fixed=}")
                 if(do_top_fit):
                     this_fit.fit()
@@ -587,7 +608,7 @@ class PrecessionAnalysis():
 
     def make_scan_toml(self, scan_name) -> configuration.AnalysisConfig:
         scan_params = self.config['scans'][scan_name]
-        outdir = os.path.join(self.config.get_directory(), scan_params['scan_dir'], scan_name)
+        outdir = os.path.join(self.config.get_directory(), self.config['scans']['scan_dir'], scan_name)
         scan_file = os.path.join(outdir, f'{scan_name}.toml')
         os.system(f'mkdir -p {outdir}; touch {scan_file}')
         config = configuration.AnalysisConfig(str(scan_file))
@@ -1217,3 +1238,54 @@ class PrecessionAnalysis():
         Fit parameter scan
         ***************************************************************************
     '''
+
+
+'''
+***************************************************************************
+Helper functions for comparing the results of an analysis
+***************************************************************************
+'''
+
+def compare_params(*fits:fitting.PyFit):
+    npar = np.amax([fit.npar for fit in fits])
+    nearest_square = int(np.ceil(np.sqrt(npar+1)))
+    lim2 = 1
+    while True:
+        if (nearest_square * lim2) >= npar+1 :
+            break
+        lim2 += 1
+    
+    fig,ax = plt.subplots(nearest_square, lim2, figsize=(nearest_square*5,lim2*3), sharex=True )
+    ax_map = {}
+    i = 1
+
+    ax.ravel()[0].set_title(r"Reduced $\chi^2$")
+    ax.ravel()[0].grid()
+    for i, fit in enumerate(fits):
+        ax.ravel()[0].plot([i],[fit.m.fmin.reduced_chi2], 'o')
+
+    for j, fitj in enumerate(fits):
+        for name in fitj.m.parameters:
+            # print(i, name)
+            if(name in ax_map):
+                axi = ax_map[name]
+            else:
+                axi = ax.ravel()[i]
+                axi.set_title(name.replace('\t','\\t'))
+                ax_map[name] = axi
+                axi.grid()
+                i += 1
+            par = fitj.m.values[name]
+            err = fitj.m.errors[name]
+            axi.errorbar([j], [par], yerr=[err], fmt='o', color=f'C{j}')
+
+    plt.tight_layout()
+    return fig,ax
+
+def compare_residuals(*fits:fitting.PyFit):
+    fig,ax = plt.subplots(figsize=(15,5))
+    for x in fits:
+        print(x)
+        ax.plot(*x.fft())
+
+    return fig,ax
